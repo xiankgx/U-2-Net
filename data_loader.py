@@ -5,7 +5,7 @@ import glob
 import math
 import random
 
-import matplotlib.pyplot as plt
+#import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from PIL import Image
@@ -300,12 +300,7 @@ class SalObjDataset(Dataset):
 
 
 class MixupAugSalObjDataset(SalObjDataset):
-	"""Saliency object detection dataset with mixup data augmentation.
-
-	Ref: Zhang, H., Cisse, M., Dauphin, Y. N., & Lopez-Paz, D. (2018).
-	MixUp: Beyond empirical risk minimization.
-	6th International Conference on Learning Representations, ICLR 2018 - Conference Track Proceedings, 1–13.
-	"""
+    """Saliency object detection dataset with mixup data augmentation."""
 
     def __init__(self, alpha=0.2, *pargs, **kwargs):
         super(MixupAugSalObjDataset, self).__init__(*pargs, **kwargs)
@@ -320,8 +315,8 @@ class MixupAugSalObjDataset(SalObjDataset):
         lam = np.random.beta(self.alpha, self.alpha)
 
         sample = {
-            'imidx_1': sample_1['imidx_1'],
-            'imidx_2': sample_2['imidx_2'],
+            'imidx_1': sample_1['imidx'],
+            'imidx_2': sample_2['imidx'],
             'image': lam * sample_1['image'] + (1.0 - lam) * sample_2['image'],
             'label': lam * sample_1['label'] + (1.0 - lam) * sample_2['label']
         }

@@ -45,21 +45,21 @@ def muti_bce_loss_fusion(d0, d1, d2, d3, d4, d5, d6, labels_v):
 
 
 def main():
-    mixup_augmentation = False
+    mixup_augmentation = True
     model_name = 'u2net'  # 'u2netp'
 
     # ------- 2. set the directory of training dataset --------
 
-    data_dir = './train_data/'
-    tra_image_dir = 'DUTS/DUTS-TR/DUTS-TR/im_aug/'
-    tra_label_dir = 'DUTS/DUTS-TR/DUTS-TR/gt_aug/'
+    data_dir = '../data/'
+    tra_image_dir = 'DUTS-TR/DUTS-TR-Image/'
+    tra_label_dir = 'DUTS-TR/DUTS-TR-Mask/'
 
     image_ext = '.jpg'
     label_ext = '.png'
 
     model_dir = './saved_models/' + model_name + '/'
 
-    epoch_num = 100000
+    epoch_num = 100
     batch_size_train = 12
     batch_size_val = 1
     train_num = 0
@@ -167,8 +167,8 @@ def main():
             optimizer.step()
 
             # # print statistics
-            running_loss += loss.data[0]
-            running_tar_loss += loss2.data[0]
+            running_loss += loss.item()
+            running_tar_loss += loss2.item()
 
             # del temporary outputs and loss
             del d0, d1, d2, d3, d4, d5, d6, loss2, loss
@@ -183,7 +183,7 @@ def main():
 
             if ite_num % save_frq == 0:
 
-                torch.save(net.state_dict(), model_dir + model_name+"_bce_itr_%d_train_%3f_tar_%3f.pth" %
+                torch.save(net.state_dict(), model_dir + model_name + ("_mixup_aug_" if mixup_augmentation else "")  + "_bce_itr_%d_train_%3f_tar_%3f.pth" %
                            (ite_num, running_loss / ite_num4val, running_tar_loss / ite_num4val))
                 running_loss = 0.0
                 running_tar_loss = 0.0
