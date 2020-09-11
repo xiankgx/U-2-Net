@@ -37,12 +37,9 @@ def save_output(image_name, pred, d_dir):
     predict = predict.squeeze()
     predict_np = predict.cpu().data.numpy()
 
-    im = Image.fromarray(predict_np*255).convert('RGB')
+    im = Image.fromarray(predict_np * 255).convert('RGB')
     img_name = image_name.split("/")[-1]
-    try:
-        image = io.imread(image_name)
-    except:
-        print(f"Bad image: {image_name}")
+    image = io.imread(image_name)
     imo = im.resize((image.shape[1], image.shape[0]), resample=Image.BILINEAR)
 
     pb_np = np.array(imo)
@@ -53,7 +50,10 @@ def save_output(image_name, pred, d_dir):
     for i in range(1, len(bbb)):
         imidx = imidx + "." + bbb[i]
 
-    imo.save(d_dir+imidx+'.png')
+    # imo.save(d_dir+imidx+'.png')
+    # print(f"image.shape: {image.shape}")
+    # print(f"pb_np.shape: {pb_np.shape}")
+    io.imsave(d_dir+imidx+'.png', np.concatenate([image, pb_np[..., [0]]], -1))
 
 
 def main():
@@ -67,6 +67,10 @@ def main():
     model_dir = './saved_models/' + model_name + '/' + model_name + '.pth'
 
     img_name_list = glob.glob(image_dir + '*')
+
+    img_exts = [".jpg", ".jpeg", ".png", ".jfif"]
+    img_name_list = list(filter(lambda p: os.path.splitext(p)[-1].lower() in img_exts,
+                                img_name_list))
     print(img_name_list)
 
     # --------- 2. dataloader ---------
