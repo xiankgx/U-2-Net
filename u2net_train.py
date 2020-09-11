@@ -1,19 +1,18 @@
-import os
 import glob
+import os
 
 import numpy as np
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 import torch.optim as optim
 import torchvision
 import torchvision.transforms as transforms
 from torch.autograd import Variable
-from torch.utils.data import DataLoader, Dataset
-from torchvision import utils
+from torch.utils.data import DataLoader
 
-from data_loader import (MixupAugSalObjDataset, RandomCrop, Rescale, RescaleT,
-                         SalObjDataset, ToTensor, ToTensorLab)
+from data_loader import (AlbuTransform, MixupAugSalObjDataset, RandomCrop,
+                         Rescale, RescaleT, SalObjDataset, ToTensor,
+                         ToTensorLab, get_train_transform)
 from model import U2NET, U2NETP
 
 # ------- 1. define loss function --------
@@ -33,13 +32,13 @@ def muti_bce_loss_fusion(d0, d1, d2, d3, d4, d5, d6, labels_v):
 
     loss = loss0 + loss1 + loss2 + loss3 + loss4 + loss5 + loss6
     # print("l0: %3f, l1: %3f, l2: %3f, l3: %3f, l4: %3f, l5: %3f, l6: %3f\n" % (
-    #     loss0.data[0],
-    #     loss1.data[0],
-    #     loss2.data[0],
-    #     loss3.data[0],
-    #     loss4.data[0],
-    #     loss5.data[0],
-    #     loss6.data[0]
+    #     loss0.item(),
+    #     loss1.item(),
+    #     loss2.item(),
+    #     loss3.item(),
+    #     loss4.item(),
+    #     loss5.item(),
+    #     loss6.item()
     # ))
 
     return loss0, loss
@@ -47,6 +46,7 @@ def muti_bce_loss_fusion(d0, d1, d2, d3, d4, d5, d6, labels_v):
 
 def main():
     mixup_augmentation = True
+    heavy_augmentation = False
     model_name = 'u2net'  # 'u2netp'
 
     # ------- 2. set the directory of training dataset --------
@@ -93,8 +93,10 @@ def main():
         img_name_list=tra_img_name_list,
         lbl_name_list=tra_lbl_name_list,
         transform=transforms.Compose([
-            RescaleT(320),
-            RandomCrop(288),
+            transforms.Compose([
+                RescaleT(320),
+                RandomCrop(288),
+            ]) if not heavy_augmentation else get_train_transform(width=288, height=288),
             ToTensorLab(flag=0)
         ])
     )
@@ -185,7 +187,7 @@ def main():
 
             if ite_num % save_frq == 0:
 
-                torch.save(net.state_dict(), model_dir + model_name + ("_mixup_aug_" if mixup_augmentation else "")  + "_bce_itr_%d_train_%3f_tar_%3f.pth" %
+                torch.save(net.state_dict(), model_dir + model_name + ("_mixup_aug_" if mixup_augmentation else "") + "_bce_itr_%d_train_%3f_tar_%3f.pth" %
                            (ite_num, running_loss / ite_num4val, running_tar_loss / ite_num4val))
                 running_loss = 0.0
                 running_tar_loss = 0.0

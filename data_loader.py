@@ -5,16 +5,47 @@ import glob
 import math
 import random
 
-#import matplotlib.pyplot as plt
+import albumentations as A
 import numpy as np
 import torch
 from PIL import Image
 from skimage import color, io, transform
-from torch.utils.data import DataLoader, Dataset
-from torchvision import transforms, utils
+from torch.utils.data import Dataset
+from torchvision import transforms
 
+
+def get_train_transform(width=288, height=288):
+    return A.Compose([
+        A.HorizontalFlip(),
+
+        A.ShiftScaleRotate(),
+
+        A.OneOf([
+            A.MotionBlur(),
+            A.OneOf([
+                A.ElasticTransform(),
+                A.GridDistortion()
+            ], p=0.5),
+        ], p=0.5),
+
+        A.RandomBrightnessContrast(),
+
+        A.OneOf([
+            A.ToGray(p=0.1),
+            A.ToSepia(p=0.1)
+        ], p=0.1),
+
+        A.OneOf([
+            A.GaussNoise()
+        ]),
+
+        A.RandomResizedCrop(height=height, width=width,
+                            scale=(0.7, 1.0))
+    ])
 
 # ==========================dataset load==========================
+
+
 class RescaleT(object):
 
     def __init__(self, output_size):
@@ -27,10 +58,11 @@ class RescaleT(object):
         h, w = image.shape[:2]
 
         if isinstance(self.output_size, int):
+            # Resize shortest edge to size
             if h > w:
-                new_h, new_w = self.output_size*h/w, self.output_size
+                new_h, new_w = self.output_size * h/w, self.output_size
             else:
-                new_h, new_w = self.output_size, self.output_size*w/h
+                new_h, new_w = self.output_size, self.output_size * w/h
         else:
             new_h, new_w = self.output_size
 
@@ -40,8 +72,8 @@ class RescaleT(object):
         # img = transform.resize(image,(new_h,new_w),mode='constant')
         # lbl = transform.resize(label,(new_h,new_w),mode='constant', order=0, preserve_range=True)
 
-        img = transform.resize(
-            image, (self.output_size, self.output_size), mode='constant')
+        img = transform.resize(image, (self.output_size, self.output_size),
+                               mode='constant')
         lbl = transform.resize(label, (self.output_size, self.output_size),
                                mode='constant', order=0, preserve_range=True)
 
@@ -65,16 +97,17 @@ class Rescale(object):
 
         if isinstance(self.output_size, int):
             if h > w:
-                new_h, new_w = self.output_size*h/w, self.output_size
+                new_h, new_w = self.output_size * h/w, self.output_size
             else:
-                new_h, new_w = self.output_size, self.output_size*w/h
+                new_h, new_w = self.output_size, self.output_size * w/h
         else:
             new_h, new_w = self.output_size
 
         new_h, new_w = int(new_h), int(new_w)
 
         # #resize the image to new_h x new_w and convert image from range [0,255] to [0,1]
-        img = transform.resize(image, (new_h, new_w), mode='constant')
+        img = transform.resize(image, (new_h, new_w),
+                               mode='constant')
         lbl = transform.resize(label, (new_h, new_w),
                                mode='constant', order=0, preserve_range=True)
 
@@ -127,13 +160,13 @@ class ToTensor(object):
             label = label/np.max(label)
 
         if image.shape[2] == 1:
-            tmpImg[:, :, 0] = (image[:, :, 0]-0.485)/0.229
-            tmpImg[:, :, 1] = (image[:, :, 0]-0.485)/0.229
-            tmpImg[:, :, 2] = (image[:, :, 0]-0.485)/0.229
+            tmpImg[:, :, 0] = (image[:, :, 0] - 0.485)/0.229
+            tmpImg[:, :, 1] = (image[:, :, 0] - 0.485)/0.229
+            tmpImg[:, :, 2] = (image[:, :, 0] - 0.485)/0.229
         else:
-            tmpImg[:, :, 0] = (image[:, :, 0]-0.485)/0.229
-            tmpImg[:, :, 1] = (image[:, :, 1]-0.456)/0.224
-            tmpImg[:, :, 2] = (image[:, :, 2]-0.406)/0.225
+            tmpImg[:, :, 0] = (image[:, :, 0] - 0.485)/0.229
+            tmpImg[:, :, 1] = (image[:, :, 1] - 0.456)/0.224
+            tmpImg[:, :, 2] = (image[:, :, 2] - 0.406)/0.225
 
         tmpLbl[:, :, 0] = label[:, :, 0]
 
@@ -235,13 +268,13 @@ class ToTensorLab(object):
             tmpImg = np.zeros((image.shape[0], image.shape[1], 3))
             image = image/np.max(image)
             if image.shape[2] == 1:
-                tmpImg[:, :, 0] = (image[:, :, 0]-0.485)/0.229
-                tmpImg[:, :, 1] = (image[:, :, 0]-0.485)/0.229
-                tmpImg[:, :, 2] = (image[:, :, 0]-0.485)/0.229
+                tmpImg[:, :, 0] = (image[:, :, 0] - 0.485)/0.229
+                tmpImg[:, :, 1] = (image[:, :, 0] - 0.485)/0.229
+                tmpImg[:, :, 2] = (image[:, :, 0] - 0.485)/0.229
             else:
-                tmpImg[:, :, 0] = (image[:, :, 0]-0.485)/0.229
-                tmpImg[:, :, 1] = (image[:, :, 1]-0.456)/0.224
-                tmpImg[:, :, 2] = (image[:, :, 2]-0.406)/0.225
+                tmpImg[:, :, 0] = (image[:, :, 0] - 0.485)/0.229
+                tmpImg[:, :, 1] = (image[:, :, 1] - 0.456)/0.224
+                tmpImg[:, :, 2] = (image[:, :, 2] - 0.406)/0.225
 
         tmpLbl[:, :, 0] = label[:, :, 0]
 
@@ -321,3 +354,19 @@ class MixupAugSalObjDataset(SalObjDataset):
             'label': lam * sample_1['label'] + (1.0 - lam) * sample_2['label']
         }
         return sample
+
+
+class AlbuTransform(object):
+    """Meta transformer for applying albumentation transforms to a sample."""
+
+    def __init__(self, transform):
+        self.transform = transform
+
+    def __call__(self, sample):
+        imidx, image, label = sample['imidx'], sample['image'], sample['label']
+
+        transformed = self.transform(image=image, mask=label)
+        image = transformed["image"]
+        label = transformed["mask"]
+
+        return {'imidx': torch.from_numpy(imidx), 'image': torch.from_numpy(image), 'label': torch.from_numpy(label)}
