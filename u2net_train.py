@@ -1,3 +1,4 @@
+import os
 import glob
 
 import numpy as np
@@ -58,6 +59,7 @@ def main():
     label_ext = '.png'
 
     model_dir = './saved_models/' + model_name + '/'
+    os.makedirs(model_dir, exist_ok=True)
 
     epoch_num = 100
     batch_size_train = 12
