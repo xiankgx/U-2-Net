@@ -49,7 +49,7 @@ def main():
 
     mixup_augmentation = False
     heavy_augmentation = False
-    multiscale_augmentation = False
+    multiscale_training = False
     multi_gpu = False
 
     model_name = 'u2net'  # 'u2netp'
@@ -97,7 +97,7 @@ def main():
     if heavy_augmentation:
         transform = AlbuSampleTransformer(
             get_heavy_transform(
-                transform_size=False if multiscale_augmentation else True)
+                transform_size=False if multiscale_training else True)
         )
     else:
         transform = transforms.Compose([
@@ -110,12 +110,12 @@ def main():
         lbl_name_list=tra_lbl_name_list,
         transform=transforms.Compose(
             [transform, ]
-            + ([ToTensorLab(flag=0), ] if not multiscale_augmentation else [])
+            + ([ToTensorLab(flag=0), ] if not multiscale_training else [])
         )
     )
     if mixup_augmentation:
         _dataset_cls = MixupAugSalObjDataset
-    elif multiscale_augmentation:
+    elif multiscale_training:
         _dataset_cls = MultiScaleSalObjDataset
     else:
         _dataset_cls = SalObjDataset
@@ -195,6 +195,9 @@ def main():
 
             loss.backward()
             optimizer.step()
+            # Step to a new scale every 10 steps if multiscale training is enabled
+            if multiscale_training and ite_num % 10 == 0:
+                salobj_dataloader.dataset.step()
 
             # # print statistics
             running_loss += loss.item()
@@ -218,7 +221,7 @@ def main():
                            + model_name
                            + ("_mixup_aug_" if mixup_augmentation else "")
                            + ("_heavy_aug_" if heavy_augmentation else "")
-                           + ("_multiscale_" if multiscale_augmentation else "")
+                           + ("_multiscale_" if multiscale_training else "")
                            + "_bce_itr_%d_train_%3f_tar_%3f.pth" % (
                     ite_num,
                     running_loss / ite_num4val,
