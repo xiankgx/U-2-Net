@@ -14,34 +14,47 @@ from torch.utils.data import Dataset
 from torchvision import transforms
 
 
-def get_train_transform(width=288, height=288):
+def get_heavy_transform(transform_size=True, width=288, height=288):
     return A.Compose([
-        A.HorizontalFlip(),
+        A.HorizontalFlip(p=0.5),
 
-        A.ShiftScaleRotate(),
+        A.Rotate(limit=45, p=0.2),
 
         A.OneOf([
-            A.MotionBlur(),
+            A.OneOf([
+                A.GaussianBlur(),
+                A.MedianBlur(),
+                A.MotionBlur(),
+            ]),
             A.OneOf([
                 A.ElasticTransform(),
                 A.GridDistortion()
-            ], p=0.5),
-        ], p=0.5),
-
-        A.RandomBrightnessContrast(),
+            ])
+        ], p=0.2),
 
         A.OneOf([
-            A.ToGray(p=0.1),
-            A.ToSepia(p=0.1)
-        ], p=0.1),
+            A.CLAHE(),
+            A.RandomGamma(),
+            A.HueSaturationValue(),
+            A.ToSepia(),
+            A.RGBShift(),
+            A.ChannelShuffle(),
+        ], p=0.2),
 
-        A.OneOf([
-            A.GaussNoise()
-        ]),
+        A.RandomBrightnessContrast(brightness_limit=0.2,
+                                   contrast_limit=0.2,
+                                   p=0.5),
 
-        A.RandomResizedCrop(height=height, width=width,
-                            scale=(0.7, 1.0))
-    ])
+        A.ToGray(p=0.1),
+
+        A.GaussNoise(var_limit=(0, 25), p=0.5),
+
+        A.JpegCompression(quality_lower=65, quality_upper=100,
+                          p=0.5)
+    ]
+        + ([A.RandomResizedCrop(height=height, width=width,
+                                scale=(0.7, 1.3)), ] if transform_size else [])
+    )
 
 # ==========================dataset load==========================
 
@@ -332,6 +345,55 @@ class SalObjDataset(Dataset):
         return sample
 
 
+class AlbuSampleTransformer(object):
+    """Meta transformer for applying albumentations transform to a sample."""
+
+    def __init__(self, transform):
+        self.transform = transform
+
+    def __call__(self, sample):
+        imidx, image, label = sample['imidx'], sample['image'], sample['label']
+
+        transformed = self.transform(image=image, mask=label)
+        image = transformed["image"]
+        label = transformed["mask"]
+
+        return {'imidx': imidx, 'image': image, 'label': label}
+
+
+class MultiScaleSalObjDataset(SalObjDataset):
+    """Salient object detection dataset for multi-scale training."""
+
+    def __init__(self, *pargs,
+                 sizes=[
+                     256, 288, 320, 352, 388, 420, 452, 488, 512
+                 ], **kwargs):
+        super(MultiScaleSalObjDataset, self).__init__(*pargs, **kwargs)
+        self.sizes = sizes
+        self.transform_size_list = [
+            transforms.Compose([
+                AlbuSampleTransformer(transforms.RandomResizedCrop(size,
+                                                                   scale=(
+                                                                       0.7, 1.3),
+                                                                   ratio=(
+                                                                       3./4, 4./3.),
+                                                                   interpolation=Image.BILINEAR)),
+                ToTensorLab(flag=0)
+            ])
+            for size in sizes
+        ]
+        self.step()
+
+    def __getitem__(self, idx):
+        sample = super(MultiScaleSalObjDataset, self).__getitem__(idx)
+        sample = self.transform_size(sample)
+        return sample
+
+    def step(self):
+        """Call this to step to a new size."""
+        self.transform_size = np.random.choice(self.transform_size_list)
+
+
 class MixupAugSalObjDataset(SalObjDataset):
     """Saliency object detection dataset with mixup data augmentation."""
 
@@ -354,19 +416,3 @@ class MixupAugSalObjDataset(SalObjDataset):
             'label': lam * sample_1['label'] + (1.0 - lam) * sample_2['label']
         }
         return sample
-
-
-class AlbuTransform(object):
-    """Meta transformer for applying albumentation transforms to a sample."""
-
-    def __init__(self, transform):
-        self.transform = transform
-
-    def __call__(self, sample):
-        imidx, image, label = sample['imidx'], sample['image'], sample['label']
-
-        transformed = self.transform(image=image, mask=label)
-        image = transformed["image"]
-        label = transformed["mask"]
-
-        return {'imidx': torch.from_numpy(imidx), 'image': torch.from_numpy(image), 'label': torch.from_numpy(label)}

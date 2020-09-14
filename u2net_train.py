@@ -5,17 +5,15 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
-import torchvision
 import torchvision.transforms as transforms
 from torch.autograd import Variable
 from torch.utils.data import DataLoader
 
-from data_loader import (AlbuTransform, MixupAugSalObjDataset, RandomCrop,
-                         Rescale, RescaleT, SalObjDataset, ToTensor,
-                         ToTensorLab, get_train_transform)
+from data_loader import (AlbuSampleTransformer, MixupAugSalObjDataset,
+                         MultiScaleSalObjDataset, RandomCrop, Rescale,
+                         RescaleT, SalObjDataset, ToTensor, ToTensorLab,
+                         get_heavy_transform)
 from model import U2NET, U2NETP
-
-# ------- 1. define loss function --------
 
 bce_loss = nn.BCELoss(size_average=True)
 
@@ -45,27 +43,34 @@ def muti_bce_loss_fusion(d0, d1, d2, d3, d4, d5, d6, labels_v):
 
 
 def main():
-    mixup_augmentation = True
-    heavy_augmentation = False
-    model_name = 'u2net'  # 'u2netp'
+    # ---------------------------------------------------------
+    # Configs
+    # ---------------------------------------------------------
 
-    # ------- 2. set the directory of training dataset --------
+    mixup_augmentation = False
+    heavy_augmentation = False
+    multiscale_augmentation = False
+    multi_gpu = False
+
+    model_name = 'u2net'  # 'u2netp'
 
     data_dir = '../data/'
     tra_image_dir = 'DUTS-TR/DUTS-TR-Image/'
     tra_label_dir = 'DUTS-TR/DUTS-TR-Mask/'
-
     image_ext = '.jpg'
     label_ext = '.png'
 
     model_dir = './saved_models/' + model_name + '/'
     os.makedirs(model_dir, exist_ok=True)
 
-    epoch_num = 100
+    lr = 0.001
+    epoch_num = 300
     batch_size_train = 12
     batch_size_val = 1
-    train_num = 0
-    val_num = 0
+    workers = 16
+    save_frq = 2000  # save the model every 2000 iterations
+
+    # ---------------------------------------------------------
 
     tra_img_name_list = glob.glob(data_dir + tra_image_dir + '*' + image_ext)
 
@@ -87,23 +92,39 @@ def main():
     print("---")
 
     train_num = len(tra_img_name_list)
+    val_num = 0
 
-    _dataset_cls = MixupAugSalObjDataset if mixup_augmentation else SalObjDataset
-    salobj_dataset = _dataset_cls(
+    if heavy_augmentation:
+        transform = AlbuSampleTransformer(
+            get_heavy_transform(
+                transform_size=False if multiscale_augmentation else True)
+        )
+    else:
+        transform = transforms.Compose([
+            RescaleT(320),
+            RandomCrop(288),
+        ])
+
+    dataset_kwargs = dict(
         img_name_list=tra_img_name_list,
         lbl_name_list=tra_lbl_name_list,
-        transform=transforms.Compose([
-            transforms.Compose([
-                RescaleT(320),
-                RandomCrop(288),
-            ]) if not heavy_augmentation else get_train_transform(width=288, height=288),
-            ToTensorLab(flag=0)
-        ])
+        transform=transforms.Compose(
+            [transform, ]
+            + ([ToTensorLab(flag=0), ] if not multiscale_augmentation else [])
+        )
     )
+    if mixup_augmentation:
+        _dataset_cls = MixupAugSalObjDataset
+    elif multiscale_augmentation:
+        _dataset_cls = MultiScaleSalObjDataset
+    else:
+        _dataset_cls = SalObjDataset
+
+    salobj_dataset = _dataset_cls(**dataset_kwargs)
     salobj_dataloader = DataLoader(salobj_dataset,
                                    batch_size=batch_size_train,
                                    shuffle=True,
-                                   num_workers=1)
+                                   num_workers=workers)
 
     # ------- 3. define model --------
     # define the net
@@ -118,18 +139,23 @@ def main():
     # ------- 4. define optimizer --------
     print("---define optimizer...")
     optimizer = optim.Adam(net.parameters(),
-                           lr=0.001,
+                           lr=lr,
                            betas=(0.9, 0.999),
                            eps=1e-08,
                            weight_decay=0)
 
+    if torch.cuda.device_count() > 1 and multi_gpu:
+        print(f"Multi-GPU training using {torch.cuda.device_count()} GPUs.")
+        net = nn.DataParallel(net)
+    else:
+        print(f"Training using {torch.cuda.device_count()} GPUs.")
+
     # ------- 5. training process --------
     print("---start training...")
     ite_num = 0
+    ite_num4val = 0
     running_loss = 0.0
     running_tar_loss = 0.0
-    ite_num4val = 0
-    save_frq = 2000  # save the model every 2000 iterations
 
     for epoch in range(0, epoch_num):
         net.train()
@@ -187,8 +213,17 @@ def main():
 
             if ite_num % save_frq == 0:
 
-                torch.save(net.state_dict(), model_dir + model_name + ("_mixup_aug_" if mixup_augmentation else "") + "_bce_itr_%d_train_%3f_tar_%3f.pth" %
-                           (ite_num, running_loss / ite_num4val, running_tar_loss / ite_num4val))
+                torch.save(net.module.state_dict() if hasattr(net, "module") else net.state_dict(),
+                           model_dir
+                           + model_name
+                           + ("_mixup_aug_" if mixup_augmentation else "")
+                           + ("_heavy_aug_" if heavy_augmentation else "")
+                           + ("_multiscale_" if multiscale_augmentation else "")
+                           + "_bce_itr_%d_train_%3f_tar_%3f.pth" % (
+                    ite_num,
+                    running_loss / ite_num4val,
+                    running_tar_loss / ite_num4val
+                ))
                 running_loss = 0.0
                 running_tar_loss = 0.0
                 net.train()  # resume train
