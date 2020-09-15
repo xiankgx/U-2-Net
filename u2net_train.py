@@ -47,8 +47,9 @@ def main():
     # Configs
     # ---------------------------------------------------------
 
+    checkpoint = "./saved_models/u2net/u2net_heavy_aug__bce_itr_4000_train_1.834341_tar_0.250207.pth"
     mixup_augmentation = False
-    heavy_augmentation = False
+    heavy_augmentation = True
     multiscale_training = False
     multi_gpu = False
 
@@ -64,7 +65,7 @@ def main():
     os.makedirs(model_dir, exist_ok=True)
 
     lr = 0.001
-    epoch_num = 300
+    epoch_num = 195
     batch_size_train = 12
     batch_size_val = 1
     workers = 16
@@ -133,6 +134,17 @@ def main():
     elif (model_name == 'u2netp'):
         net = U2NETP(3, 1)
 
+    if checkpoint:
+        if not os.path.exists(checkpoint):
+            raise FileNotFoundError(f"Checkpoint file not found: {checkpoint}")
+
+        print(f"Restoring from checkpoint: {checkpoint}")
+        try:
+            net.load_state_dict(torch.load(checkpoint, map_location="cpu"))
+            print("-- success")
+        except:
+            print("-- error")
+
     if torch.cuda.is_available():
         net.cuda()
 
@@ -165,6 +177,7 @@ def main():
             ite_num4val = ite_num4val + 1
 
             inputs, labels = data['image'], data['label']
+            #print(f"{inputs.shape}")
 
             inputs = inputs.type(torch.FloatTensor)
             labels = labels.type(torch.FloatTensor)

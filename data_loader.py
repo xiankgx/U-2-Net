@@ -320,10 +320,17 @@ class SalObjDataset(Dataset):
         imname = self.image_name_list[idx]
         imidx = np.array([idx])
 
+        if image.ndim == 2:
+            image = np.stack([image, ] * 3, axis=-1)
+
         if(0 == len(self.label_name_list)):
             label_3 = np.zeros(image.shape)
         else:
             label_3 = io.imread(self.label_name_list[idx])
+
+        # Make equal spatial dimension
+        if label_3.shape[:2] != image.shape[:2]:
+            image = transform.resize(image, label_3.shape[:2])
 
         label = np.zeros(label_3.shape[0:2])
         if(3 == len(label_3.shape)):
@@ -354,9 +361,12 @@ class AlbuSampleTransformer(object):
     def __call__(self, sample):
         imidx, image, label = sample['imidx'], sample['image'], sample['label']
 
-        transformed = self.transform(image=image, mask=label)
-        image = transformed["image"]
-        label = transformed["mask"]
+        try:
+            transformed = self.transform(image=image, mask=label)
+            image = transformed["image"].astype(np.float32)
+            label = transformed["mask"].astype(np.float32)
+        except Exception as e:
+            print(f"{imidx} -> {str(e)}, image shape: {image.shape}, label shape: {label.shape}")
 
         return {'imidx': imidx, 'image': image, 'label': label}
 
@@ -372,12 +382,10 @@ class MultiScaleSalObjDataset(SalObjDataset):
         self.sizes = sizes
         self.transform_size_list = [
             transforms.Compose([
-                AlbuSampleTransformer(transforms.RandomResizedCrop(size,
-                                                                   scale=(
-                                                                       0.7, 1.3),
-                                                                   ratio=(
-                                                                       3./4, 4./3.),
-                                                                   interpolation=Image.BILINEAR)),
+                AlbuSampleTransformer(A.RandomResizedCrop(width=size, height=size,
+                                                            scale=(0.7, 1.3),
+                                                            ratio=(3./4, 4./3.),
+                                                            interpolation=Image.BILINEAR)),
                 ToTensorLab(flag=0)
             ])
             for size in sizes
@@ -391,7 +399,10 @@ class MultiScaleSalObjDataset(SalObjDataset):
 
     def step(self):
         """Call this to step to a new size."""
-        self.transform_size = np.random.choice(self.transform_size_list)
+        idx = np.random.randint(len(self.transform_size_list))
+        print(f"Current size: {self.sizes[idx]}")
+        self.transform_size = self.transform_size_list[idx]
+        #print(f"self.transform_size: {self.transform_size}")
 
 
 class MixupAugSalObjDataset(SalObjDataset):
