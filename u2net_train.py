@@ -237,9 +237,9 @@ def main():
                 torch.save(net.module.state_dict() if hasattr(net, "module") else net.state_dict(),
                            model_dir
                            + model_name
-                           + ("_mixup_aug_" if mixup_augmentation else "")
-                           + ("_heavy_aug_" if heavy_augmentation else "")
-                           + ("_multiscale_" if multiscale_training else "")
+                           + ("_mixup_aug" if mixup_augmentation else "")
+                           + ("_heavy_aug" if heavy_augmentation else "")
+                           + ("_multiscale" if multiscale_training else "")
                            + "_bce_itr_%d_train_%3f_tar_%3f.pth" % (
                     ite_num,
                     running_loss / ite_num4val,
