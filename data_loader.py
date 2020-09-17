@@ -366,7 +366,8 @@ class AlbuSampleTransformer(object):
             image = transformed["image"].astype(np.float32)
             label = transformed["mask"].astype(np.float32)
         except Exception as e:
-            print(f"{imidx} -> {str(e)}, image shape: {image.shape}, label shape: {label.shape}")
+            print(
+                f"{imidx} -> {str(e)}, image shape: {image.shape}, label shape: {label.shape}")
 
         return {'imidx': imidx, 'image': image, 'label': label}
 
@@ -374,35 +375,35 @@ class AlbuSampleTransformer(object):
 class MultiScaleSalObjDataset(SalObjDataset):
     """Salient object detection dataset for multi-scale training."""
 
-    def __init__(self, *pargs,
-                 sizes=[
-                     256, 288, 320, 352, 388, 420, 452, 488, 512
-                 ], **kwargs):
+    def __init__(self,
+                 *pargs,
+                 sizes=[256, 320, 388, 452, 512],
+                 **kwargs):
         super(MultiScaleSalObjDataset, self).__init__(*pargs, **kwargs)
+
         self.sizes = sizes
         self.transform_size_list = [
             transforms.Compose([
                 AlbuSampleTransformer(A.RandomResizedCrop(width=size, height=size,
-                                                            scale=(0.7, 1.3),
-                                                            ratio=(3./4, 4./3.),
-                                                            interpolation=Image.BILINEAR)),
+                                                          scale=(0.7, 1.3),
+                                                          ratio=(3./4, 4./3.),
+                                                          interpolation=Image.BILINEAR)),
                 ToTensorLab(flag=0)
             ])
             for size in sizes
         ]
-        self.step()
 
     def __getitem__(self, idx):
         sample = super(MultiScaleSalObjDataset, self).__getitem__(idx)
-        sample = self.transform_size(sample)
-        return sample
 
-    def step(self):
-        """Call this to step to a new size."""
-        idx = np.random.randint(len(self.transform_size_list))
-        print(f"Current size: {self.sizes[idx]}")
-        self.transform_size = self.transform_size_list[idx]
-        #print(f"self.transform_size: {self.transform_size}")
+        ms_sample = {}
+        ms_sample["imidx"] = sample["imidx"]
+        for i, size in enumerate(self.sizes):
+            _sample = self.transform_size_list[i](sample)
+            ms_sample[f"image_{size}"] = _sample["image"]
+            ms_sample[f"label_{size}"] = _sample["label"]
+
+        return ms_sample
 
 
 class MixupAugSalObjDataset(SalObjDataset):

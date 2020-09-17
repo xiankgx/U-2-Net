@@ -62,9 +62,15 @@ def main():
     model_name = 'u2net'
     # model_name = 'u2netp'
 
-    image_dir = 'D:/image_segmentation_keras/test_images/'
-    prediction_dir = './test_data/' + model_name + '_results/'
-    model_dir = './saved_models/' + model_name + '/' + model_name + '.pth'
+    image_dir = '/home/gx/datasets/DUTS-TE/DUTS-TE-Image/'
+    # prediction_dir = './test_data/' + model_name + '_results/'
+    # model_dir = './saved_models/' + model_name + '/' + model_name + '.pth'
+
+    # model_dir = "./saved_models/u2net/u2net_mixup_aug__bce_itr_88000_train_0.965288_tar_0.124629.pth"
+    model_dir = "./saved_models/u2net/u2net_heavy_aug__bce_itr_168000_train_0.358549_tar_0.038169.pth"
+    prediction_dir = f"./predictions_{os.path.splitext(os.path.basename(model_dir))[0]}/"
+
+    os.makedirs(prediction_dir, exist_ok=True)
 
     img_name_list = glob.glob(image_dir + '*')
 

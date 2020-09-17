@@ -176,8 +176,16 @@ def main():
             ite_num = ite_num + 1
             ite_num4val = ite_num4val + 1
 
-            inputs, labels = data['image'], data['label']
-            #print(f"{inputs.shape}")
+            image_key = "image"
+            label_key = "label"
+            if multiscale_training:
+                size = np.random.choice(salobj_dataloader.dataset.sizes)
+                # print(f"size: {size}")
+                image_key = f"image_{size}"
+                label_key = f"label_{size}"
+
+            inputs, labels = data[image_key], data[label_key]
+            # print(f"{inputs.shape}")
 
             inputs = inputs.type(torch.FloatTensor)
             labels = labels.type(torch.FloatTensor)
@@ -208,9 +216,6 @@ def main():
 
             loss.backward()
             optimizer.step()
-            # Step to a new scale every 10 steps if multiscale training is enabled
-            if multiscale_training and ite_num % 10 == 0:
-                salobj_dataloader.dataset.step()
 
             # # print statistics
             running_loss += loss.item()
