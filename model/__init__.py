@@ -1,2 +1,2 @@
-from .u2net import U2NET
-from .u2net import U2NETP
+from .custom import CustomNet
+from .u2net import U2NET, U2NETP

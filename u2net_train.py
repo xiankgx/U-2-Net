@@ -13,12 +13,12 @@ from data_loader import (AlbuSampleTransformer, MixupAugSalObjDataset,
                          MultiScaleSalObjDataset, RandomCrop, Rescale,
                          RescaleT, SalObjDataset, ToTensor, ToTensorLab,
                          get_heavy_transform)
-from model import U2NET, U2NETP
+from model import U2NET, U2NETP, CustomNet
 
 bce_loss = nn.BCELoss(size_average=True)
 
 
-def muti_bce_loss_fusion(d0, d1, d2, d3, d4, d5, d6, labels_v):
+def multi_bce_loss_fusion(d0, d1, d2, d3, d4, d5, d6, labels_v):
 
     loss0 = bce_loss(d0, labels_v)
     loss1 = bce_loss(d1, labels_v)
@@ -38,6 +38,20 @@ def muti_bce_loss_fusion(d0, d1, d2, d3, d4, d5, d6, labels_v):
     #     loss5.item(),
     #     loss6.item()
     # ))
+
+    return loss0, loss
+
+
+def multi_bce_loss_fusion5(d0, d1, d2, d3, d4, d5, labels_v):
+
+    loss0 = bce_loss(d0, labels_v)
+    loss1 = bce_loss(d1, labels_v)
+    loss2 = bce_loss(d2, labels_v)
+    loss3 = bce_loss(d3, labels_v)
+    loss4 = bce_loss(d4, labels_v)
+    loss5 = bce_loss(d5, labels_v)
+
+    loss = loss0 + loss1 + loss2 + loss3 + loss4 + loss5
 
     return loss0, loss
 
@@ -133,6 +147,8 @@ def main():
         net = U2NET(3, 1)
     elif (model_name == 'u2netp'):
         net = U2NETP(3, 1)
+    elif (model_name == 'custom'):
+        net = CustomNet()
 
     if checkpoint:
         if not os.path.exists(checkpoint):
@@ -204,15 +220,25 @@ def main():
             optimizer.zero_grad()
 
             # forward + backward + optimize
-            d0, d1, d2, d3, d4, d5, d6 = net(inputs_v)
-            loss2, loss = muti_bce_loss_fusion(d0,
-                                               d1,
-                                               d2,
-                                               d3,
-                                               d4,
-                                               d5,
-                                               d6,
-                                               labels_v)
+            if model_name == "custom":
+                d0, d1, d2, d3, d4, d5 = net(inputs_v)
+                loss2, loss = multi_bce_loss_fusion5(d0,
+                                                     d1,
+                                                     d2,
+                                                     d3,
+                                                     d4,
+                                                     d5,
+                                                     labels_v)
+            else:
+                d0, d1, d2, d3, d4, d5, d6 = net(inputs_v)
+                loss2, loss = multi_bce_loss_fusion(d0,
+                                                    d1,
+                                                    d2,
+                                                    d3,
+                                                    d4,
+                                                    d5,
+                                                    d6,
+                                                    labels_v)
 
             loss.backward()
             optimizer.step()
