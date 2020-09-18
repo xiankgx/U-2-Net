@@ -92,19 +92,22 @@ class Unet(nn.Module):
                                     3, 1, 1)
 
     def forward(self, x, y=None):
-        backbone_outputs = self.backbone(x, y)
+        if y is not None:
+            backbone_outputs = self.backbone(x, y)
+        else:
+            backbone_outputs = self.backbone(x)
 
         x = backbone_outputs[-1]
-        outputs = [x]
+        side_outputs = [x]
         for i, m in enumerate(self.decoder_blocks):
             x_up = self.upsample_blocks[i](x)
             x = torch.cat([x_up, backbone_outputs[-2 - i]], dim=1)
 
             x = m(x)
-            outputs.append(x)
+            side_outputs.append(x)
 
         x = self.final_conv(x)
-        return tuple(outputs)
+        return tuple([x, ] + side_outputs)
 
 
 class UnetBackbone(nn.Module):
@@ -303,7 +306,7 @@ class CustomNet(nn.Module):
 
         # Resize and project side outputs
         side_outs = []
-        for i, t in enumerate(seg_outs):
+        for i, t in enumerate(seg_outs[1:]):
             side_outs.append(torch.sigmoid(self.seg_projections[i](t)))
         assert len(side_outs) == 5
 
