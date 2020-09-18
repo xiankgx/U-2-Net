@@ -304,11 +304,11 @@ class CustomNet(nn.Module):
         # Resize and project side outputs
         side_outs = []
         for i, t in enumerate(seg_outs):
-            side_outs.append(self.seg_projections[i](t))
+            side_outs.append(torch.sigmoid(self.seg_projections[i](t)))
         assert len(side_outs) == 5
 
         # Fuse all side outputs
-        fused = self.fuse(torch.cat(side_outs, dim=1))
+        fused = torch.sigmoid(self.fuse(torch.cat(side_outs, dim=1)))
 
         outputs = [fused, ] + side_outs
         assert len(outputs) == 6

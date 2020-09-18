@@ -61,13 +61,14 @@ def main():
     # Configs
     # ---------------------------------------------------------
 
-    checkpoint = "./saved_models/u2net/u2net_heavy_aug__bce_itr_4000_train_1.834341_tar_0.250207.pth"
+    #checkpoint = "./saved_models/u2net/u2net_heavy_aug__bce_itr_170000_train_0.366308_tar_0.039038.pth"
+    checkpoint = None
     mixup_augmentation = False
     heavy_augmentation = True
     multiscale_training = False
     multi_gpu = False
 
-    model_name = 'u2net'  # 'u2netp'
+    model_name = 'custom'  # 'u2netp'
 
     data_dir = '../data/'
     tra_image_dir = 'DUTS-TR/DUTS-TR-Image/'
@@ -79,8 +80,8 @@ def main():
     os.makedirs(model_dir, exist_ok=True)
 
     lr = 0.001
-    epoch_num = 195
-    batch_size_train = 12
+    epoch_num = 500
+    batch_size_train = 6
     batch_size_val = 1
     workers = 16
     save_frq = 2000  # save the model every 2000 iterations
@@ -220,6 +221,7 @@ def main():
             optimizer.zero_grad()
 
             # forward + backward + optimize
+            d6 = 0
             if model_name == "custom":
                 d0, d1, d2, d3, d4, d5 = net(inputs_v)
                 loss2, loss = multi_bce_loss_fusion5(d0,
