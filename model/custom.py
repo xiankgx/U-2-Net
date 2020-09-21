@@ -4,6 +4,13 @@ import torch.nn.functional as F
 import torchvision.models as models
 
 
+def _upsample_like(src, tar):
+    src = F.interpolate(src, size=tar.shape[2:],
+                        mode='bilinear',
+                        align_corners=True)
+    return src
+
+
 class ConvBNReLU(nn.Module):
 
     def __init__(self, in_channels, out_channels, kernel_size=3, stride=1, padding=1, batch_norm=True):
@@ -27,33 +34,6 @@ class ConvBNReLU(nn.Module):
         return x
 
 
-class UpsampleBlock(nn.Module):
-
-    def __init__(self, in_channels, out_channels, mode="up_conv"):
-        super(UpsampleBlock, self).__init__()
-
-        self.in_channels = in_channels
-        self.out_channels = out_channels
-        self.mode = mode
-
-        if mode == "up_conv":
-            modules = [
-                nn.ConvTranspose2d(in_channels, out_channels,
-                                   kernel_size=2, stride=2, padding=0)
-            ]
-        else:
-            modules = [
-                nn.Upsample(scale_factor=2, mode="bilinear"),
-                nn.Conv2d(in_channels, out_channels,
-                          kernel_size=3, stride=1, padding=1)
-            ]
-
-        self.block = nn.Sequential(*modules)
-
-    def forward(self, x):
-        return self.block(x)
-
-
 class Unet(nn.Module):
 
     def __init__(self,
@@ -70,11 +50,12 @@ class Unet(nn.Module):
         assert len(decoder_channels) == len(in_channels) - 1
         assert len(decoder_channels) == len(decoder_block_repeats)
 
-        upsample_blocks = []
+        upsample_projection_blocks = []
         decoder_blocks = []
         prev_channel = in_channels[-1]
         for i, c in enumerate(decoder_channels):
-            upsample_blocks.append(UpsampleBlock(prev_channel, c))
+            upsample_projection_blocks.append(
+                nn.Conv2d(prev_channel, c, 3, 1, 1))
             decoder_blocks.append(
                 nn.Sequential(*(
                     [ConvBNReLU(c + in_channels[-2 - i], c,
@@ -86,7 +67,8 @@ class Unet(nn.Module):
 
             prev_channel = c
 
-        self.upsample_blocks = nn.ModuleList(upsample_blocks)
+        self.upsample_projection_blocks = nn.ModuleList(
+            upsample_projection_blocks)
         self.decoder_blocks = nn.ModuleList(decoder_blocks)
         self.final_conv = nn.Conv2d(decoder_channels[-1], out_channels,
                                     3, 1, 1)
@@ -98,9 +80,11 @@ class Unet(nn.Module):
             backbone_outputs = self.backbone(x)
 
         x = backbone_outputs[-1]
-        side_outputs = [x]
+        side_outputs = [x, ]
         for i, m in enumerate(self.decoder_blocks):
-            x_up = self.upsample_blocks[i](x)
+            x_up = _upsample_like(x, backbone_outputs[-2 - i])
+            x_up = self.upsample_projection_blocks[i](x_up)
+
             x = torch.cat([x_up, backbone_outputs[-2 - i]], dim=1)
 
             x = m(x)
@@ -185,6 +169,8 @@ class UnetBackboneMultiInputs(nn.Module):
     def forward(self, x, y):
         outputs = []
         for i, m in enumerate(self.layers):
+            # print(f">>> x.shape: {x.shape}")
+            # print(f">>> y[i].shape: {y[i].shape}")
             x = m(torch.cat([x, y[i]], dim=1))
             outputs.append(x)
 
@@ -199,7 +185,7 @@ class ResNet50Backbone(nn.Module):
     def __init__(self, pretrained=True):
         super(ResNet50Backbone, self).__init__()
 
-        self.extract_layers = [2, 4, 5, 6]
+        self.extract_layers = [2, 4, 5, 6, 7]
 
         backbone = models.resnet50(pretrained=pretrained)
         self.layers = nn.ModuleList(list(backbone.children())[:-2])
@@ -209,7 +195,7 @@ class ResNet50Backbone(nn.Module):
 
         for i, m in enumerate(self.layers):
             x = m(x)
-            # print(f"layer #{i} shape: {x.shape}")
+            # print(f"RN50 layer #{i} shape: {x.shape}")
 
             if i in self.extract_layers:
                 outputs.append(x)
@@ -223,70 +209,47 @@ class CustomNet(nn.Module):
         super(CustomNet, self).__init__()
 
         self.deep_features = ResNet50Backbone()
-        deep_features_channels = 1024
+        deep_features_channels = 2048
 
         # Standard Unet with side additional side inputs at every encoder blocks
-        segnet_backbone = UnetBackboneMultiInputs(channels=[32, 64, 128, 256, 512],
-                                                  side_channels=[3, 32, 64, 128, 256])
+        segnet_backbone = UnetBackboneMultiInputs(
+            channels=[32, 64, 128, 256, 512],
+            encoder_block_repeats=[3, 3, 3, 3, 3],
+            side_channels=[3, 32, 64, 128, 256]
+        )
 
         self.deep_projections = nn.ModuleList([
-            nn.Sequential(
-                nn.Upsample(scale_factor=16, mode="bilinear"),
-                ConvBNReLU(deep_features_channels,
-                           segnet_backbone.side_channels[0])
-            ),
-            nn.Sequential(
-                nn.Upsample(scale_factor=8, mode="bilinear"),
-                ConvBNReLU(deep_features_channels,
-                           segnet_backbone.side_channels[1])
-            ),
-            nn.Sequential(
-                nn.Upsample(scale_factor=4, mode="bilinear"),
-                ConvBNReLU(deep_features_channels,
-                           segnet_backbone.side_channels[2])
-            ),
-            nn.Sequential(
-                nn.Upsample(scale_factor=2, mode="bilinear"),
-                ConvBNReLU(deep_features_channels,
-                           segnet_backbone.side_channels[3])
-            ),
-            nn.Sequential(
-                ConvBNReLU(deep_features_channels,
-                           segnet_backbone.side_channels[4])
-            )
+            nn.Conv2d(deep_features_channels,
+                      segnet_backbone.side_channels[0], 1),
+            nn.Conv2d(deep_features_channels,
+                      segnet_backbone.side_channels[1], 1),
+            nn.Conv2d(deep_features_channels,
+                      segnet_backbone.side_channels[2], 1),
+            nn.Conv2d(deep_features_channels,
+                      segnet_backbone.side_channels[3], 1),
+            nn.Conv2d(deep_features_channels,
+                      segnet_backbone.side_channels[4], 1)
         ])
 
         self.segnet = Unet(backbone=segnet_backbone,
                            in_channels=segnet_backbone.channels,
-                           decoder_channels=[256, 128, 64, 32])
+                           decoder_channels=[256, 128, 64, 32],
+                           decoder_block_repeats=[3, 3, 3, 3])
         # For upsampling predictions to full size
-        self.seg_projections = nn.ModuleList([
-            nn.Sequential(
-                nn.Upsample(scale_factor=16, mode="bilinear"),
-                nn.Conv2d(segnet_backbone.channels[4], out_channels,
-                          3, 1, 1)
-            ),
-            nn.Sequential(
-                nn.Upsample(scale_factor=8, mode="bilinear"),
-                nn.Conv2d(segnet_backbone.channels[3], out_channels,
-                          3, 1, 1)
-            ),
-            nn.Sequential(
-                nn.Upsample(scale_factor=4, mode="bilinear"),
-                nn.Conv2d(segnet_backbone.channels[2], out_channels,
-                          3, 1, 1)
-            ),
-            nn.Sequential(
-                nn.Upsample(scale_factor=2, mode="bilinear"),
-                nn.Conv2d(segnet_backbone.channels[1], out_channels,
-                          3, 1, 1)
-            ),
-            nn.Sequential(
-                nn.Conv2d(segnet_backbone.channels[0], out_channels,
-                          3, 1, 1)
-            )
+        self.side_projections = nn.ModuleList([
+            nn.Conv2d(segnet_backbone.channels[4], out_channels,
+                      3, 1, 1),
+            nn.Conv2d(segnet_backbone.channels[3], out_channels,
+                      3, 1, 1),
+            nn.Conv2d(segnet_backbone.channels[2], out_channels,
+                      3, 1, 1),
+            nn.Conv2d(segnet_backbone.channels[1], out_channels,
+                      3, 1, 1),
+            nn.Conv2d(segnet_backbone.channels[0], out_channels,
+                      3, 1, 1)
         ])
-        self.fuse = nn.Conv2d(5 * out_channels, out_channels, 1)
+        self.fuse = nn.Conv2d(len(self.side_projections)
+                              * out_channels, out_channels, 1)
 
     def forward(self, x):
         input = x
@@ -297,9 +260,17 @@ class CustomNet(nn.Module):
         # Project last deep feature map to various sizes suitable as side input to Unet
         projected_deep_features = []
         for i, m in enumerate(self.deep_projections):
-            _x = m(deep_features[-1])
+            target_size = (
+                int(x.size(2)/(2 ** i)),
+                int(x.size(3)/(2 ** i))
+            )
+            # print(f"target_size: {target_size}")
+            _x = F.interpolate(deep_features[-1],
+                               size=target_size,
+                               mode="bilinear",
+                               align_corners=True)
+            _x = m(_x)
             projected_deep_features.append(_x)
-        assert len(projected_deep_features) == 5
 
         # Make prediction with Unet
         seg_outs = self.segnet(input, projected_deep_features)
@@ -307,19 +278,19 @@ class CustomNet(nn.Module):
         # Resize and project side outputs
         side_outs = []
         for i, t in enumerate(seg_outs[1:]):
-            side_outs.append(torch.sigmoid(self.seg_projections[i](t)))
-        assert len(side_outs) == 5
+            t = _upsample_like(t, seg_outs[-1])
+            t = torch.sigmoid(self.side_projections[i](t))
+            side_outs.append(t)
 
         # Fuse all side outputs
         fused = torch.sigmoid(self.fuse(torch.cat(side_outs, dim=1)))
 
         outputs = [fused, ] + side_outs
-        assert len(outputs) == 6
         return tuple(outputs)
 
 
 if __name__ == "__main__":
-    input = torch.rand(2, 3, 320, 320)
+    input = torch.rand(2, 3, 1020, 235)
 
     rn50 = ResNet50Backbone()
     outputs = rn50(input)
