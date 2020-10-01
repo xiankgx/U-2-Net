@@ -29,15 +29,6 @@ def multi_bce_loss_fusion(d0, d1, d2, d3, d4, d5, d6, labels_v):
     loss6 = bce_loss(d6, labels_v)
 
     loss = loss0 + loss1 + loss2 + loss3 + loss4 + loss5 + loss6
-    # print("l0: %3f, l1: %3f, l2: %3f, l3: %3f, l4: %3f, l5: %3f, l6: %3f\n" % (
-    #     loss0.item(),
-    #     loss1.item(),
-    #     loss2.item(),
-    #     loss3.item(),
-    #     loss4.item(),
-    #     loss5.item(),
-    #     loss6.item()
-    # ))
 
     return loss0, loss
 
@@ -69,6 +60,7 @@ def main():
     multi_gpu = False
 
     model_name = 'custom'  # 'u2netp'
+    se_type = None
 
     data_dir = '../data/'
     tra_image_dir = 'DUTS-TR/DUTS-TR-Image/'
@@ -145,9 +137,9 @@ def main():
     # ------- 3. define model --------
     # define the net
     if (model_name == 'u2net'):
-        net = U2NET(3, 1)
+        net = U2NET(3, 1, se_type=se_type)
     elif (model_name == 'u2netp'):
-        net = U2NETP(3, 1)
+        net = U2NETP(3, 1, se_type=se_type)
     elif (model_name == 'custom'):
         net = CustomNet()
 
@@ -265,6 +257,7 @@ def main():
                 torch.save(net.module.state_dict() if hasattr(net, "module") else net.state_dict(),
                            model_dir
                            + model_name
+                           + ("_" + se_type if se_type else "")
                            + ("_mixup_aug" if mixup_augmentation else "")
                            + ("_heavy_aug" if heavy_augmentation else "")
                            + ("_multiscale" if multiscale_training else "")
