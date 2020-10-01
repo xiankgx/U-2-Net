@@ -1,15 +1,19 @@
+from functools import partial
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torchvision import models
+
+from .squeeze_and_excitation import (ChannelSELayer, ChannelSpatialSELayer,
+                                     SpatialSELayer)
 
 
 class REBNCONV(nn.Module):
     def __init__(self, in_ch=3, out_ch=3, dirate=1):
         super(REBNCONV, self).__init__()
 
-        self.conv_s1 = nn.Conv2d(
-            in_ch, out_ch, 3, padding=1*dirate, dilation=1*dirate)
+        self.conv_s1 = nn.Conv2d(in_ch, out_ch, 3, padding=1*dirate,
+                                 dilation=1*dirate)
         self.bn_s1 = nn.BatchNorm2d(out_ch)
         self.relu_s1 = nn.ReLU(inplace=True)
 
@@ -20,49 +24,76 @@ class REBNCONV(nn.Module):
 
         return xout
 
-# upsample tensor 'src' to have the same spatial size with tensor 'tar'
+
+class SEConvBNReLU(nn.Module):
+    def __init__(self, in_ch=3, out_ch=3, dirate=1, se_type="CSSE"):
+        super(SEConvBNReLU, self).__init__()
+
+        self.conv = nn.Conv2d(in_ch, out_ch, 3, padding=1*dirate,
+                              dilation=1*dirate)
+        self.bn = nn.BatchNorm2d(out_ch)
+        self.relu = nn.ReLU(inplace=True)
+        if se_type == "none" or not se_type:
+            self.se = nn.Identity()
+        elif se_type.lower() == "CSSE".lower():
+            self.se = ChannelSpatialSELayer(out_ch)
+        elif se_type.lower() == "SSE".lower():
+            self.se = SpatialSELayer(out_ch)
+        elif se_type.lower() == "CSE".lower():
+            self.se = ChannelSELayer(out_ch)
+        else:
+            raise ValueError(f"Unknown se_type: {se_type}")
+
+    def forward(self, x):
+
+        hx = x
+        xout = self.se(self.relu(self.bn(self.conv(hx))))
+
+        return xout
 
 
 def _upsample_like(src, tar):
-
-    src = F.upsample(src, size=tar.shape[2:], mode='bilinear')
-
+    src = F.interpolate(src, size=tar.shape[2:],
+                        mode='bilinear',
+                        align_corners=False)
     return src
 
 
-### RSU-7 ###
 class RSU7(nn.Module):  # UNet07DRES(nn.Module):
 
-    def __init__(self, in_ch=3, mid_ch=12, out_ch=3):
+    def __init__(self, in_ch=3, mid_ch=12, out_ch=3, se_type=None):
         super(RSU7, self).__init__()
 
-        self.rebnconvin = REBNCONV(in_ch, out_ch, dirate=1)
+        basic_block = partial(SEConvBNReLU, se_type=se_type) if se_type not in [
+            None, "none", ""] else REBNCONV
 
-        self.rebnconv1 = REBNCONV(out_ch, mid_ch, dirate=1)
+        self.rebnconvin = basic_block(in_ch, out_ch, dirate=1)
+
+        self.rebnconv1 = basic_block(out_ch, mid_ch, dirate=1)
         self.pool1 = nn.MaxPool2d(2, stride=2, ceil_mode=True)
 
-        self.rebnconv2 = REBNCONV(mid_ch, mid_ch, dirate=1)
+        self.rebnconv2 = basic_block(mid_ch, mid_ch, dirate=1)
         self.pool2 = nn.MaxPool2d(2, stride=2, ceil_mode=True)
 
-        self.rebnconv3 = REBNCONV(mid_ch, mid_ch, dirate=1)
+        self.rebnconv3 = basic_block(mid_ch, mid_ch, dirate=1)
         self.pool3 = nn.MaxPool2d(2, stride=2, ceil_mode=True)
 
-        self.rebnconv4 = REBNCONV(mid_ch, mid_ch, dirate=1)
+        self.rebnconv4 = basic_block(mid_ch, mid_ch, dirate=1)
         self.pool4 = nn.MaxPool2d(2, stride=2, ceil_mode=True)
 
-        self.rebnconv5 = REBNCONV(mid_ch, mid_ch, dirate=1)
+        self.rebnconv5 = basic_block(mid_ch, mid_ch, dirate=1)
         self.pool5 = nn.MaxPool2d(2, stride=2, ceil_mode=True)
 
-        self.rebnconv6 = REBNCONV(mid_ch, mid_ch, dirate=1)
+        self.rebnconv6 = basic_block(mid_ch, mid_ch, dirate=1)
 
-        self.rebnconv7 = REBNCONV(mid_ch, mid_ch, dirate=2)
+        self.rebnconv7 = basic_block(mid_ch, mid_ch, dirate=2)
 
-        self.rebnconv6d = REBNCONV(mid_ch*2, mid_ch, dirate=1)
-        self.rebnconv5d = REBNCONV(mid_ch*2, mid_ch, dirate=1)
-        self.rebnconv4d = REBNCONV(mid_ch*2, mid_ch, dirate=1)
-        self.rebnconv3d = REBNCONV(mid_ch*2, mid_ch, dirate=1)
-        self.rebnconv2d = REBNCONV(mid_ch*2, mid_ch, dirate=1)
-        self.rebnconv1d = REBNCONV(mid_ch*2, out_ch, dirate=1)
+        self.rebnconv6d = basic_block(mid_ch*2, mid_ch, dirate=1)
+        self.rebnconv5d = basic_block(mid_ch*2, mid_ch, dirate=1)
+        self.rebnconv4d = basic_block(mid_ch*2, mid_ch, dirate=1)
+        self.rebnconv3d = basic_block(mid_ch*2, mid_ch, dirate=1)
+        self.rebnconv2d = basic_block(mid_ch*2, mid_ch, dirate=1)
+        self.rebnconv1d = basic_block(mid_ch*2, out_ch, dirate=1)
 
     def forward(self, x):
 
@@ -107,37 +138,38 @@ class RSU7(nn.Module):  # UNet07DRES(nn.Module):
 
         return hx1d + hxin
 
-### RSU-6 ###
-
 
 class RSU6(nn.Module):  # UNet06DRES(nn.Module):
 
-    def __init__(self, in_ch=3, mid_ch=12, out_ch=3):
+    def __init__(self, in_ch=3, mid_ch=12, out_ch=3, se_type=None):
         super(RSU6, self).__init__()
 
-        self.rebnconvin = REBNCONV(in_ch, out_ch, dirate=1)
+        basic_block = partial(SEConvBNReLU, se_type=se_type) if se_type not in [
+            None, "none", ""] else REBNCONV
 
-        self.rebnconv1 = REBNCONV(out_ch, mid_ch, dirate=1)
+        self.rebnconvin = basic_block(in_ch, out_ch, dirate=1)
+
+        self.rebnconv1 = basic_block(out_ch, mid_ch, dirate=1)
         self.pool1 = nn.MaxPool2d(2, stride=2, ceil_mode=True)
 
-        self.rebnconv2 = REBNCONV(mid_ch, mid_ch, dirate=1)
+        self.rebnconv2 = basic_block(mid_ch, mid_ch, dirate=1)
         self.pool2 = nn.MaxPool2d(2, stride=2, ceil_mode=True)
 
-        self.rebnconv3 = REBNCONV(mid_ch, mid_ch, dirate=1)
+        self.rebnconv3 = basic_block(mid_ch, mid_ch, dirate=1)
         self.pool3 = nn.MaxPool2d(2, stride=2, ceil_mode=True)
 
-        self.rebnconv4 = REBNCONV(mid_ch, mid_ch, dirate=1)
+        self.rebnconv4 = basic_block(mid_ch, mid_ch, dirate=1)
         self.pool4 = nn.MaxPool2d(2, stride=2, ceil_mode=True)
 
-        self.rebnconv5 = REBNCONV(mid_ch, mid_ch, dirate=1)
+        self.rebnconv5 = basic_block(mid_ch, mid_ch, dirate=1)
 
-        self.rebnconv6 = REBNCONV(mid_ch, mid_ch, dirate=2)
+        self.rebnconv6 = basic_block(mid_ch, mid_ch, dirate=2)
 
-        self.rebnconv5d = REBNCONV(mid_ch*2, mid_ch, dirate=1)
-        self.rebnconv4d = REBNCONV(mid_ch*2, mid_ch, dirate=1)
-        self.rebnconv3d = REBNCONV(mid_ch*2, mid_ch, dirate=1)
-        self.rebnconv2d = REBNCONV(mid_ch*2, mid_ch, dirate=1)
-        self.rebnconv1d = REBNCONV(mid_ch*2, out_ch, dirate=1)
+        self.rebnconv5d = basic_block(mid_ch*2, mid_ch, dirate=1)
+        self.rebnconv4d = basic_block(mid_ch*2, mid_ch, dirate=1)
+        self.rebnconv3d = basic_block(mid_ch*2, mid_ch, dirate=1)
+        self.rebnconv2d = basic_block(mid_ch*2, mid_ch, dirate=1)
+        self.rebnconv1d = basic_block(mid_ch*2, out_ch, dirate=1)
 
     def forward(self, x):
 
@@ -176,33 +208,34 @@ class RSU6(nn.Module):  # UNet06DRES(nn.Module):
 
         return hx1d + hxin
 
-### RSU-5 ###
-
 
 class RSU5(nn.Module):  # UNet05DRES(nn.Module):
 
-    def __init__(self, in_ch=3, mid_ch=12, out_ch=3):
+    def __init__(self, in_ch=3, mid_ch=12, out_ch=3, se_type=None):
         super(RSU5, self).__init__()
 
-        self.rebnconvin = REBNCONV(in_ch, out_ch, dirate=1)
+        basic_block = partial(SEConvBNReLU, se_type=se_type) if se_type not in [
+            None, "none", ""] else REBNCONV
 
-        self.rebnconv1 = REBNCONV(out_ch, mid_ch, dirate=1)
+        self.rebnconvin = basic_block(in_ch, out_ch, dirate=1)
+
+        self.rebnconv1 = basic_block(out_ch, mid_ch, dirate=1)
         self.pool1 = nn.MaxPool2d(2, stride=2, ceil_mode=True)
 
-        self.rebnconv2 = REBNCONV(mid_ch, mid_ch, dirate=1)
+        self.rebnconv2 = basic_block(mid_ch, mid_ch, dirate=1)
         self.pool2 = nn.MaxPool2d(2, stride=2, ceil_mode=True)
 
-        self.rebnconv3 = REBNCONV(mid_ch, mid_ch, dirate=1)
+        self.rebnconv3 = basic_block(mid_ch, mid_ch, dirate=1)
         self.pool3 = nn.MaxPool2d(2, stride=2, ceil_mode=True)
 
-        self.rebnconv4 = REBNCONV(mid_ch, mid_ch, dirate=1)
+        self.rebnconv4 = basic_block(mid_ch, mid_ch, dirate=1)
 
-        self.rebnconv5 = REBNCONV(mid_ch, mid_ch, dirate=2)
+        self.rebnconv5 = basic_block(mid_ch, mid_ch, dirate=2)
 
-        self.rebnconv4d = REBNCONV(mid_ch*2, mid_ch, dirate=1)
-        self.rebnconv3d = REBNCONV(mid_ch*2, mid_ch, dirate=1)
-        self.rebnconv2d = REBNCONV(mid_ch*2, mid_ch, dirate=1)
-        self.rebnconv1d = REBNCONV(mid_ch*2, out_ch, dirate=1)
+        self.rebnconv4d = basic_block(mid_ch*2, mid_ch, dirate=1)
+        self.rebnconv3d = basic_block(mid_ch*2, mid_ch, dirate=1)
+        self.rebnconv2d = basic_block(mid_ch*2, mid_ch, dirate=1)
+        self.rebnconv1d = basic_block(mid_ch*2, out_ch, dirate=1)
 
     def forward(self, x):
 
@@ -236,29 +269,30 @@ class RSU5(nn.Module):  # UNet05DRES(nn.Module):
 
         return hx1d + hxin
 
-### RSU-4 ###
-
 
 class RSU4(nn.Module):  # UNet04DRES(nn.Module):
 
-    def __init__(self, in_ch=3, mid_ch=12, out_ch=3):
+    def __init__(self, in_ch=3, mid_ch=12, out_ch=3, se_type=None):
         super(RSU4, self).__init__()
 
-        self.rebnconvin = REBNCONV(in_ch, out_ch, dirate=1)
+        basic_block = partial(SEConvBNReLU, se_type=se_type) if se_type not in [
+            None, "none", ""] else REBNCONV
 
-        self.rebnconv1 = REBNCONV(out_ch, mid_ch, dirate=1)
+        self.rebnconvin = basic_block(in_ch, out_ch, dirate=1)
+
+        self.rebnconv1 = basic_block(out_ch, mid_ch, dirate=1)
         self.pool1 = nn.MaxPool2d(2, stride=2, ceil_mode=True)
 
-        self.rebnconv2 = REBNCONV(mid_ch, mid_ch, dirate=1)
+        self.rebnconv2 = basic_block(mid_ch, mid_ch, dirate=1)
         self.pool2 = nn.MaxPool2d(2, stride=2, ceil_mode=True)
 
-        self.rebnconv3 = REBNCONV(mid_ch, mid_ch, dirate=1)
+        self.rebnconv3 = basic_block(mid_ch, mid_ch, dirate=1)
 
-        self.rebnconv4 = REBNCONV(mid_ch, mid_ch, dirate=2)
+        self.rebnconv4 = basic_block(mid_ch, mid_ch, dirate=2)
 
-        self.rebnconv3d = REBNCONV(mid_ch*2, mid_ch, dirate=1)
-        self.rebnconv2d = REBNCONV(mid_ch*2, mid_ch, dirate=1)
-        self.rebnconv1d = REBNCONV(mid_ch*2, out_ch, dirate=1)
+        self.rebnconv3d = basic_block(mid_ch*2, mid_ch, dirate=1)
+        self.rebnconv2d = basic_block(mid_ch*2, mid_ch, dirate=1)
+        self.rebnconv1d = basic_block(mid_ch*2, out_ch, dirate=1)
 
     def forward(self, x):
 
@@ -286,25 +320,26 @@ class RSU4(nn.Module):  # UNet04DRES(nn.Module):
 
         return hx1d + hxin
 
-### RSU-4F ###
-
 
 class RSU4F(nn.Module):  # UNet04FRES(nn.Module):
 
-    def __init__(self, in_ch=3, mid_ch=12, out_ch=3):
+    def __init__(self, in_ch=3, mid_ch=12, out_ch=3, se_type=None):
         super(RSU4F, self).__init__()
 
-        self.rebnconvin = REBNCONV(in_ch, out_ch, dirate=1)
+        basic_block = partial(SEConvBNReLU, se_type=se_type) if se_type not in [
+            None, "none", ""] else REBNCONV
 
-        self.rebnconv1 = REBNCONV(out_ch, mid_ch, dirate=1)
-        self.rebnconv2 = REBNCONV(mid_ch, mid_ch, dirate=2)
-        self.rebnconv3 = REBNCONV(mid_ch, mid_ch, dirate=4)
+        self.rebnconvin = basic_block(in_ch, out_ch, dirate=1)
 
-        self.rebnconv4 = REBNCONV(mid_ch, mid_ch, dirate=8)
+        self.rebnconv1 = basic_block(out_ch, mid_ch, dirate=1)
+        self.rebnconv2 = basic_block(mid_ch, mid_ch, dirate=2)
+        self.rebnconv3 = basic_block(mid_ch, mid_ch, dirate=4)
 
-        self.rebnconv3d = REBNCONV(mid_ch*2, mid_ch, dirate=4)
-        self.rebnconv2d = REBNCONV(mid_ch*2, mid_ch, dirate=2)
-        self.rebnconv1d = REBNCONV(mid_ch*2, out_ch, dirate=1)
+        self.rebnconv4 = basic_block(mid_ch, mid_ch, dirate=8)
+
+        self.rebnconv3d = basic_block(mid_ch*2, mid_ch, dirate=4)
+        self.rebnconv2d = basic_block(mid_ch*2, mid_ch, dirate=2)
+        self.rebnconv1d = basic_block(mid_ch*2, out_ch, dirate=1)
 
     def forward(self, x):
 
@@ -325,35 +360,34 @@ class RSU4F(nn.Module):  # UNet04FRES(nn.Module):
         return hx1d + hxin
 
 
-##### U^2-Net ####
 class U2NET(nn.Module):
 
-    def __init__(self, in_ch=3, out_ch=1):
+    def __init__(self, in_ch=3, out_ch=1, se_type=None):
         super(U2NET, self).__init__()
 
-        self.stage1 = RSU7(in_ch, 32, 64)
+        self.stage1 = RSU7(in_ch, 32, 64, se_type=se_type)
         self.pool12 = nn.MaxPool2d(2, stride=2, ceil_mode=True)
 
-        self.stage2 = RSU6(64, 32, 128)
+        self.stage2 = RSU6(64, 32, 128, se_type=se_type)
         self.pool23 = nn.MaxPool2d(2, stride=2, ceil_mode=True)
 
-        self.stage3 = RSU5(128, 64, 256)
+        self.stage3 = RSU5(128, 64, 256, se_type=se_type)
         self.pool34 = nn.MaxPool2d(2, stride=2, ceil_mode=True)
 
-        self.stage4 = RSU4(256, 128, 512)
+        self.stage4 = RSU4(256, 128, 512, se_type=se_type)
         self.pool45 = nn.MaxPool2d(2, stride=2, ceil_mode=True)
 
-        self.stage5 = RSU4F(512, 256, 512)
+        self.stage5 = RSU4F(512, 256, 512, se_type=se_type)
         self.pool56 = nn.MaxPool2d(2, stride=2, ceil_mode=True)
 
-        self.stage6 = RSU4F(512, 256, 512)
+        self.stage6 = RSU4F(512, 256, 512, se_type=se_type)
 
         # decoder
-        self.stage5d = RSU4F(1024, 256, 512)
-        self.stage4d = RSU4(1024, 128, 256)
-        self.stage3d = RSU5(512, 64, 128)
-        self.stage2d = RSU6(256, 32, 64)
-        self.stage1d = RSU7(128, 16, 64)
+        self.stage5d = RSU4F(1024, 256, 512, se_type=se_type)
+        self.stage4d = RSU4(1024, 128, 256, se_type=se_type)
+        self.stage3d = RSU5(512, 64, 128, se_type=se_type)
+        self.stage2d = RSU6(256, 32, 64, se_type=se_type)
+        self.stage1d = RSU7(128, 16, 64, se_type=se_type)
 
         self.side1 = nn.Conv2d(64, out_ch, 3, padding=1)
         self.side2 = nn.Conv2d(64, out_ch, 3, padding=1)
@@ -362,7 +396,7 @@ class U2NET(nn.Module):
         self.side5 = nn.Conv2d(512, out_ch, 3, padding=1)
         self.side6 = nn.Conv2d(512, out_ch, 3, padding=1)
 
-        self.outconv = nn.Conv2d(6, out_ch, 1)
+        self.outconv = nn.Conv2d(6 * out_ch, out_ch, 1)
 
     def forward(self, x):
 
@@ -427,39 +461,37 @@ class U2NET(nn.Module):
 
         d0 = self.outconv(torch.cat((d1, d2, d3, d4, d5, d6), 1))
 
-        return F.sigmoid(d0), F.sigmoid(d1), F.sigmoid(d2), F.sigmoid(d3), F.sigmoid(d4), F.sigmoid(d5), F.sigmoid(d6)
-
-### U^2-Net small ###
+        return torch.sigmoid(d0), torch.sigmoid(d1), torch.sigmoid(d2), torch.sigmoid(d3), torch.sigmoid(d4), torch.sigmoid(d5), torch.sigmoid(d6)
 
 
 class U2NETP(nn.Module):
 
-    def __init__(self, in_ch=3, out_ch=1):
+    def __init__(self, in_ch=3, out_ch=1, se_type=None):
         super(U2NETP, self).__init__()
 
-        self.stage1 = RSU7(in_ch, 16, 64)
+        self.stage1 = RSU7(in_ch, 16, 64, se_type=se_type)
         self.pool12 = nn.MaxPool2d(2, stride=2, ceil_mode=True)
 
-        self.stage2 = RSU6(64, 16, 64)
+        self.stage2 = RSU6(64, 16, 64, se_type=se_type)
         self.pool23 = nn.MaxPool2d(2, stride=2, ceil_mode=True)
 
-        self.stage3 = RSU5(64, 16, 64)
+        self.stage3 = RSU5(64, 16, 64, se_type=se_type)
         self.pool34 = nn.MaxPool2d(2, stride=2, ceil_mode=True)
 
-        self.stage4 = RSU4(64, 16, 64)
+        self.stage4 = RSU4(64, 16, 64, se_type=se_type)
         self.pool45 = nn.MaxPool2d(2, stride=2, ceil_mode=True)
 
-        self.stage5 = RSU4F(64, 16, 64)
+        self.stage5 = RSU4F(64, 16, 64, se_type=se_type)
         self.pool56 = nn.MaxPool2d(2, stride=2, ceil_mode=True)
 
-        self.stage6 = RSU4F(64, 16, 64)
+        self.stage6 = RSU4F(64, 16, 64, se_type=se_type)
 
         # decoder
-        self.stage5d = RSU4F(128, 16, 64)
-        self.stage4d = RSU4(128, 16, 64)
-        self.stage3d = RSU5(128, 16, 64)
-        self.stage2d = RSU6(128, 16, 64)
-        self.stage1d = RSU7(128, 16, 64)
+        self.stage5d = RSU4F(128, 16, 64, se_type=se_type)
+        self.stage4d = RSU4(128, 16, 64, se_type=se_type)
+        self.stage3d = RSU5(128, 16, 64, se_type=se_type)
+        self.stage2d = RSU6(128, 16, 64, se_type=se_type)
+        self.stage1d = RSU7(128, 16, 64, se_type=se_type)
 
         self.side1 = nn.Conv2d(64, out_ch, 3, padding=1)
         self.side2 = nn.Conv2d(64, out_ch, 3, padding=1)
@@ -468,7 +500,7 @@ class U2NETP(nn.Module):
         self.side5 = nn.Conv2d(64, out_ch, 3, padding=1)
         self.side6 = nn.Conv2d(64, out_ch, 3, padding=1)
 
-        self.outconv = nn.Conv2d(6, out_ch, 1)
+        self.outconv = nn.Conv2d(6 * out_ch, out_ch, 1)
 
     def forward(self, x):
 
@@ -533,4 +565,11 @@ class U2NETP(nn.Module):
 
         d0 = self.outconv(torch.cat((d1, d2, d3, d4, d5, d6), 1))
 
-        return F.sigmoid(d0), F.sigmoid(d1), F.sigmoid(d2), F.sigmoid(d3), F.sigmoid(d4), F.sigmoid(d5), F.sigmoid(d6)
+        return torch.sigmoid(d0), torch.sigmoid(d1), torch.sigmoid(d2), torch.sigmoid(d3), torch.sigmoid(d4), torch.sigmoid(d5), torch.sigmoid(d6)
+
+
+if __name__ == "__main__":
+    from torchsummary import summary
+
+    model = U2NET(3, 1, se_type="csse")
+    summary(model, (torch.rand(4, 3, 320, 320),))

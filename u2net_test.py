@@ -3,31 +3,21 @@ import os
 
 import numpy as np
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
-import torchvision
 from PIL import Image
 from skimage import io, transform
 from torch.autograd import Variable
 from torch.utils.data import DataLoader, Dataset
-from torchvision import transforms  # , utils
+from torchvision import transforms
 
-from data_loader import RescaleT, SalObjDataset, ToTensor, ToTensorLab
-from model import U2NET  # full size version 173.6 MB
-from model import U2NETP  # small version u2net 4.7 MB
-
-# import torch.optim as optim
-
-
-# normalize the predicted SOD probability map
+from data_loader import RescaleT, SalObjDataset, ToTensorLab
+from model import U2NET, U2NETP, CustomNet
 
 
 def normPRED(d):
+    # normalize the predicted SOD probability map
     ma = torch.max(d)
     mi = torch.min(d)
-
-    dn = (d-mi)/(ma-mi)
-
+    dn = (d - mi)/(ma - mi)
     return dn
 
 
@@ -56,19 +46,19 @@ def save_output(image_name, pred, d_dir):
     #io.imsave(d_dir+imidx+'.png', np.concatenate([image, pb_np[..., [0]]], -1))
     io.imsave(d_dir + imidx + '.png', pb_np[..., 0])
 
+
 def main():
 
-    # --------- 1. get image path and name ---------
-    model_name = 'u2net'
+    full_sized_testing = False
+    model_name = 'custom'
     # model_name = 'u2netp'
 
-    image_dir = '../data/DUTS-TE/DUTS-TE-Image/'
+    image_dir = '/home/gx/datasets/DUTS-TE/DUTS-TE-Image/'
     # prediction_dir = './test_data/' + model_name + '_results/'
     # model_dir = './saved_models/' + model_name + '/' + model_name + '.pth'
 
-    # model_dir = "./saved_models/u2net/u2net_mixup_aug__bce_itr_88000_train_0.965288_tar_0.124629.pth"
-    model_dir = "./saved_models/u2net/u2net.pth"
-    prediction_dir = f"./predictions_{os.path.splitext(os.path.basename(model_dir))[0]}/"
+    model_dir = "./saved_models/custom/custom_heavy_aug_bce_itr_248000_train_0.396976_tar_0.067510.pth"
+    prediction_dir = f"./predictions{'_fullsize' if full_sized_testing else ''}_{os.path.splitext(os.path.basename(model_dir))[0]}/"
 
     os.makedirs(prediction_dir, exist_ok=True)
 
@@ -83,9 +73,11 @@ def main():
     # 1. dataloader
     test_salobj_dataset = SalObjDataset(img_name_list=img_name_list,
                                         lbl_name_list=[],
-                                        transform=transforms.Compose([RescaleT(320),
-                                                                      ToTensorLab(flag=0)])
-                                        )
+                                        transform=transforms.Compose(
+                                            ([] if full_sized_testing else [
+                                             RescaleT(320), ])
+                                            + [ToTensorLab(flag=0), ]
+                                        ))
     test_salobj_dataloader = DataLoader(test_salobj_dataset,
                                         batch_size=1,
                                         shuffle=False,
@@ -98,6 +90,8 @@ def main():
     elif(model_name == 'u2netp'):
         print("...load U2NEP---4.7 MB")
         net = U2NETP(3, 1)
+    elif(model_name == 'custom'):
+        net = CustomNet()
     net.load_state_dict(torch.load(model_dir))
     if torch.cuda.is_available():
         net.cuda()
@@ -116,7 +110,11 @@ def main():
         else:
             inputs_test = Variable(inputs_test)
 
-        d1, d2, d3, d4, d5, d6, d7 = net(inputs_test)
+        d7 = 0
+        if model_name == "custom":
+            d1, d2, d3, d4, d5, d6 = net(inputs_test)
+        else:
+            d1, d2, d3, d4, d5, d6, d7 = net(inputs_test)
 
         # normalization
         pred = d1[:, 0, :, :]

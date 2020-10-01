@@ -34,6 +34,7 @@ def evaluate(gt_dir, pred_dir):
     gt_files = glob.glob(gt_dir + "/**/*.png", recursive=True)
     pred_files = list(map(lambda p: p.replace(
         gt_dir, pred_dir), gt_files))
+    # pred_files = list(map(lambda p: os.path.splitext(p)[0] + ".jpg", pred_files))
 
     for f in pred_files:
         if not os.path.exists(f):
