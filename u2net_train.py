@@ -8,11 +8,11 @@ import torch.optim as optim
 import torchvision.transforms as transforms
 from torch.autograd import Variable
 from torch.utils.data import DataLoader
+from tqdm import tqdm
 
 from data_loader import (AlbuSampleTransformer, MixupAugSalObjDataset,
-                         MultiScaleSalObjDataset, RandomCrop, Rescale,
-                         RescaleT, SalObjDataset, ToTensor, ToTensorLab,
-                         get_heavy_transform)
+                         MultiScaleSalObjDataset, RandomCrop, RescaleT,
+                         SalObjDataset, ToTensorLab, get_heavy_transform)
 from model import U2NET, U2NETP, CustomNet
 
 bce_loss = nn.BCELoss(size_average=True)
@@ -49,59 +49,66 @@ def multi_bce_loss_fusion5(d0, d1, d2, d3, d4, d5, labels_v):
 
 def main():
     # ---------------------------------------------------------
-    # Configs
+    # Configurations
     # ---------------------------------------------------------
 
-    #checkpoint = "./saved_models/u2net/u2net_heavy_aug__bce_itr_170000_train_0.366308_tar_0.039038.pth"
-    checkpoint = None
+    heavy_augmentation = True  # False to use author's default implementation
+    # mutually exclusive with multiscale_training
     mixup_augmentation = False
-    heavy_augmentation = True
-    multiscale_training = False
-    multi_gpu = False
+    # mutually exclusive with mixup_augmentation
+    multiscale_training = True
+    multi_gpu = True
+    mixed_precision_training = True
 
-    model_name = 'custom'  # 'u2netp'
-    se_type = None
+    model_name = 'u2net'  # 'u2netp'
+    se_type = None   # "csse", "sse", "cse", None; None to use author's default implementation
+    checkpoint = None
 
-    data_dir = '../data/'
-    tra_image_dir = 'DUTS-TR/DUTS-TR-Image/'
-    tra_label_dir = 'DUTS-TR/DUTS-TR-Mask/'
+    data_dir = '../datasets/'
+    tra_image_dir = '123rf_person_removebg/image/'
+    tra_label_dir = '123rf_person_removebg/alpha/'
     image_ext = '.jpg'
     label_ext = '.png'
-
-    model_dir = './saved_models/' + model_name + '/'
-    os.makedirs(model_dir, exist_ok=True)
+    dataset_name = None
 
     lr = 0.001
-    epoch_num = 500
-    batch_size_train = 6
+    epoch_num = 300
+    batch_size_train = 3
     batch_size_val = 1
     workers = 16
     save_frq = 2000  # save the model every 2000 iterations
 
     # ---------------------------------------------------------
 
-    tra_img_name_list = glob.glob(data_dir + tra_image_dir + '*' + image_ext)
+    model_dir = './saved_models/' + model_name + '/'
+    os.makedirs(model_dir, exist_ok=True)
 
+    # ---------------------------------------------------------
+    # 1. Construct data input pipeline
+    # ---------------------------------------------------------
+
+    # Get dataset name
+    if not dataset_name:
+        dataset_name = tra_image_dir.split(sep=os.path.sep)[0]
+    dataset_name = dataset_name.replace(" ", "_")
+
+    # Get training data
+    tra_img_name_list = []
     tra_lbl_name_list = []
-    for img_path in tra_img_name_list:
-        img_name = img_path.split("/")[-1]
+    for img_path in glob.glob(data_dir + tra_image_dir + '*' + image_ext):
+        lbl_path = img_path.replace(tra_image_dir, tra_label_dir) \
+            .replace(image_ext, label_ext)
 
-        aaa = img_name.split(".")
-        bbb = aaa[0:-1]
-        imidx = bbb[0]
-        for i in range(1, len(bbb)):
-            imidx = imidx + "." + bbb[i]
-
-        tra_lbl_name_list.append(data_dir + tra_label_dir + imidx + label_ext)
-
-    print("---")
-    print("train images: ", len(tra_img_name_list))
-    print("train labels: ", len(tra_lbl_name_list))
-    print("---")
+        if os.path.exists(img_path) and os.path.exists(lbl_path):
+            tra_img_name_list.append(img_path)
+            tra_lbl_name_list.append(lbl_path)
 
     train_num = len(tra_img_name_list)
-    val_num = 0
+    # val_num = 0  # unused
+    print(f"dataset name        : {dataset_name}")
+    print(f"training samples    : {train_num}")
 
+    # Construct data input pipeline
     if heavy_augmentation:
         transform = AlbuSampleTransformer(
             get_heavy_transform(
@@ -113,6 +120,7 @@ def main():
             RandomCrop(288),
         ])
 
+    # Create dataset and dataloader
     dataset_kwargs = dict(
         img_name_list=tra_img_name_list,
         lbl_name_list=tra_lbl_name_list,
@@ -134,15 +142,21 @@ def main():
                                    shuffle=True,
                                    num_workers=workers)
 
-    # ------- 3. define model --------
-    # define the net
-    if (model_name == 'u2net'):
-        net = U2NET(3, 1, se_type=se_type)
-    elif (model_name == 'u2netp'):
-        net = U2NETP(3, 1, se_type=se_type)
-    elif (model_name == 'custom'):
-        net = CustomNet()
+    # ---------------------------------------------------------
+    # 2. Load model
+    # ---------------------------------------------------------
 
+    # Instantiate model
+    if model_name == 'u2net':
+        net = U2NET(3, 1, se_type=se_type)
+    elif model_name == 'u2netp':
+        net = U2NETP(3, 1, se_type=se_type)
+    elif model_name == 'custom':
+        net = CustomNet()
+    else:
+        raise ValueError(f"Unknown model_name: {model_name}")
+
+    # Restore model weights from checkpoint
     if checkpoint:
         if not os.path.exists(checkpoint):
             raise FileNotFoundError(f"Checkpoint file not found: {checkpoint}")
@@ -150,20 +164,41 @@ def main():
         print(f"Restoring from checkpoint: {checkpoint}")
         try:
             net.load_state_dict(torch.load(checkpoint, map_location="cpu"))
-            print("-- success")
+            print(" - [x] success")
         except:
-            print("-- error")
+            print(" - [!] error")
 
     if torch.cuda.is_available():
         net.cuda()
 
-    # ------- 4. define optimizer --------
-    print("---define optimizer...")
+    # ---------------------------------------------------------
+    # 3. Define optimizer
+    # ---------------------------------------------------------
+
     optimizer = optim.Adam(net.parameters(),
                            lr=lr,
                            betas=(0.9, 0.999),
                            eps=1e-08,
                            weight_decay=0)
+
+    # ---------------------------------------------------------
+    # 4. Initialize AMP and data parallel stuffs
+    # ---------------------------------------------------------
+
+    GOT_AMP = False
+    if mixed_precision_training:
+        try:
+            print("Checking for Apex AMP support...")
+            from apex import amp
+            GOT_AMP = True
+            print(" - [x] yes")
+        except ImportError:
+            print(" - [!] no")
+
+    if GOT_AMP:
+        amp.register_float_function(torch, 'sigmoid')
+        model, optimizer = amp.initialize(net, optimizer,
+                                          opt_level="O1")
 
     if torch.cuda.device_count() > 1 and multi_gpu:
         print(f"Multi-GPU training using {torch.cuda.device_count()} GPUs.")
@@ -171,25 +206,32 @@ def main():
     else:
         print(f"Training using {torch.cuda.device_count()} GPUs.")
 
-    # ------- 5. training process --------
-    print("---start training...")
+    # ---------------------------------------------------------
+    # 5. Training
+    # ---------------------------------------------------------
+
+    print("Start training...")
+
     ite_num = 0
     ite_num4val = 0
     running_loss = 0.0
     running_tar_loss = 0.0
 
-    for epoch in range(0, epoch_num):
+    for epoch in tqdm(range(0, epoch_num), desc="Epoch"):
         net.train()
 
-        for i, data in enumerate(salobj_dataloader):
+        for i, data in enumerate(tqdm(salobj_dataloader, desc="Batch")):
             ite_num = ite_num + 1
             ite_num4val = ite_num4val + 1
 
             image_key = "image"
             label_key = "label"
+
+            # Randomly select one of available sizes if multiscale training
             if multiscale_training:
                 size = np.random.choice(salobj_dataloader.dataset.sizes)
-                # print(f"size: {size}")
+                tqdm.write(f"current input size: {size}")
+
                 image_key = f"image_{size}"
                 label_key = f"label_{size}"
 
@@ -199,7 +241,7 @@ def main():
             inputs = inputs.type(torch.FloatTensor)
             labels = labels.type(torch.FloatTensor)
 
-            # wrap them in Variable
+            # Wrap them in Variable
             if torch.cuda.is_available():
                 inputs_v, labels_v = \
                     Variable(inputs.cuda(), requires_grad=False), \
@@ -209,10 +251,10 @@ def main():
                     Variable(inputs, requires_grad=False), \
                     Variable(labels, requires_grad=False)
 
-            # y zero the parameter gradients
+            # Zero the parameter gradients
             optimizer.zero_grad()
 
-            # forward + backward + optimize
+            # Forward + backward + optimize
             d6 = 0
             if model_name == "custom":
                 d0, d1, d2, d3, d4, d5 = net(inputs_v)
@@ -234,17 +276,21 @@ def main():
                                                     d6,
                                                     labels_v)
 
-            loss.backward()
+            if GOT_AMP:
+                with amp.scale_loss(loss, optimizer) as scaled_loss:
+                    scaled_loss.backward()
+            else:
+                loss.backward()
             optimizer.step()
 
-            # # print statistics
             running_loss += loss.item()
             running_tar_loss += loss2.item()
 
-            # del temporary outputs and loss
+            # Delete temporary outputs and loss
             del d0, d1, d2, d3, d4, d5, d6, loss2, loss
 
-            print("[epoch: %3d/%3d, batch: %5d/%5d, ite: %d] train loss: %3f, tar: %3f " % (
+            # Print stats
+            tqdm.write("[epoch: %3d/%3d, batch: %5d/%5d, ite: %d] train loss: %3f, tar: %3f " % (
                 epoch + 1, epoch_num,
                 (i + 1) * batch_size_train, train_num,
                 ite_num,
@@ -253,11 +299,12 @@ def main():
             ))
 
             if ite_num % save_frq == 0:
-
+                # Save checkpoint
                 torch.save(net.module.state_dict() if hasattr(net, "module") else net.state_dict(),
                            model_dir
                            + model_name
-                           + ("_" + se_type if se_type else "")
+                           + (("_" + se_type) if se_type else "")
+                           + ("_" + dataset_name)
                            + ("_mixup_aug" if mixup_augmentation else "")
                            + ("_heavy_aug" if heavy_augmentation else "")
                            + ("_multiscale" if multiscale_training else "")
@@ -266,10 +313,14 @@ def main():
                     running_loss / ite_num4val,
                     running_tar_loss / ite_num4val
                 ))
+
+                # Reset stats
                 running_loss = 0.0
                 running_tar_loss = 0.0
                 net.train()  # resume train
                 ite_num4val = 0
+
+    print("Training completed successfully.")
 
 
 if __name__ == "__main__":

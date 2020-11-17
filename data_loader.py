@@ -2,10 +2,10 @@
 from __future__ import division, print_function
 
 import glob
-import math
 import random
 
 import albumentations as A
+import cv2
 import numpy as np
 import torch
 from PIL import Image
@@ -18,19 +18,24 @@ def get_heavy_transform(transform_size=True, width=288, height=288):
     return A.Compose([
         A.HorizontalFlip(p=0.5),
 
-        A.Rotate(limit=45, p=0.2),
+        A.RandomSunFlare(p=0.1),
 
         A.OneOf([
-            A.OneOf([
-                A.GaussianBlur(),
-                A.MedianBlur(),
-                A.MotionBlur(),
-            ]),
-            A.OneOf([
-                A.ElasticTransform(),
-                A.GridDistortion()
-            ])
+            A.GaussianBlur(),
+            A.MedianBlur(),
+            A.MotionBlur(),
         ], p=0.2),
+
+        A.OneOf([
+            A.IAAPiecewiseAffine(),
+            A.ElasticTransform(),
+            A.GridDistortion()
+        ], p=0.2),
+
+        A.RandomFog(p=0.1),
+
+        A.Rotate(limit=90, p=0.5,
+                 interpolation=cv2.INTER_LINEAR),
 
         A.OneOf([
             A.CLAHE(),
@@ -44,16 +49,19 @@ def get_heavy_transform(transform_size=True, width=288, height=288):
         A.RandomBrightnessContrast(brightness_limit=0.2,
                                    contrast_limit=0.2,
                                    p=0.5),
+        A.ToGray(p=0.2),
 
-        A.ToGray(p=0.1),
-
-        A.GaussNoise(var_limit=(0, 25), p=0.5),
-
+        A.OneOf([
+            A.GaussNoise(var_limit=(0, 25)),
+            A.ISONoise()
+        ], p=0.5),
+        A.Downscale(scale_min=0.25, scale_max=0.99,
+                    p=0.5),
         A.JpegCompression(quality_lower=65, quality_upper=100,
                           p=0.5)
     ]
         + ([A.RandomResizedCrop(height=height, width=width,
-                                scale=(0.7, 1.3)), ] if transform_size else [])
+                                scale=(0.5, 1.5)), ] if transform_size else [])
     )
 
 # ==========================dataset load==========================
@@ -377,7 +385,7 @@ class MultiScaleSalObjDataset(SalObjDataset):
 
     def __init__(self,
                  *pargs,
-                 sizes=[256, 320, 388, 452, 512],
+                 sizes=[256, 320, 384, 448, 512],
                  **kwargs):
         super(MultiScaleSalObjDataset, self).__init__(*pargs, **kwargs)
 
@@ -385,9 +393,9 @@ class MultiScaleSalObjDataset(SalObjDataset):
         self.transform_size_list = [
             transforms.Compose([
                 AlbuSampleTransformer(A.RandomResizedCrop(width=size, height=size,
-                                                          scale=(0.7, 1.3),
+                                                          scale=(0.5, 1.5),
                                                           ratio=(3./4, 4./3.),
-                                                          interpolation=Image.BILINEAR)),
+                                                          interpolation=cv2.INTER_LINEAR)),
                 ToTensorLab(flag=0)
             ])
             for size in sizes
