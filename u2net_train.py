@@ -62,14 +62,28 @@ def main():
 
     model_name = 'u2net'  # 'u2netp'
     se_type = None   # "csse", "sse", "cse", None; None to use author's default implementation
-    checkpoint = None
+    checkpoint = "saved_models/u2net/u2net_123rf_person_removebg_heavy_aug_multiscale_bce_itr_14000_train_1.636904_tar_0.218940.pth"
 
-    data_dir = '../datasets/'
-    tra_image_dir = '123rf_person_removebg/image/'
-    tra_label_dir = '123rf_person_removebg/alpha/'
+    # data_dir = '../datasets/'
+    # tra_image_dir = '123rf_person_removebg/image/'
+    # tra_label_dir = '123rf_person_removebg/alpha/'
+
+    train_dirs = [
+        "../datasets/123rf_person_removebg/",
+        "../datasets/supervisely_person/",
+        "../datasets/portraits/",
+        "../datasets/aisegment_portraits/",
+    ]
+    train_dirs_file_limit = [
+        None,
+        None,
+        None,
+        30000
+    ]
+
     image_ext = '.jpg'
     label_ext = '.png'
-    dataset_name = None
+    dataset_name = "mixed_person_n_portraits"
 
     lr = 0.001
     epoch_num = 300
@@ -88,20 +102,27 @@ def main():
     # ---------------------------------------------------------
 
     # Get dataset name
-    if not dataset_name:
-        dataset_name = tra_image_dir.split(sep=os.path.sep)[0]
+    # if not dataset_name:
+    #     dataset_name = tra_image_dir.split(sep=os.path.sep)[0]
     dataset_name = dataset_name.replace(" ", "_")
 
     # Get training data
     tra_img_name_list = []
     tra_lbl_name_list = []
-    for img_path in glob.glob(data_dir + tra_image_dir + '*' + image_ext):
-        lbl_path = img_path.replace(tra_image_dir, tra_label_dir) \
-            .replace(image_ext, label_ext)
+    for d, flimit in zip(train_dirs, train_dirs_file_limit):
+        img_files = glob.glob(d + '**/*' + image_ext, recursive=True)
+        if flimit:
+            img_files = np.random.choice(img_files, size=flimit, replace=False)
 
-        if os.path.exists(img_path) and os.path.exists(lbl_path):
-            tra_img_name_list.append(img_path)
-            tra_lbl_name_list.append(lbl_path)
+        print(f"directory: {d}, files: {len(img_files)}")
+
+        for img_path in img_files:
+            lbl_path = img_path.replace("image", "alpha") \
+                .replace(image_ext, label_ext)
+
+            if os.path.exists(img_path) and os.path.exists(lbl_path):
+                tra_img_name_list.append(img_path)
+                tra_lbl_name_list.append(lbl_path)
 
     train_num = len(tra_img_name_list)
     # val_num = 0  # unused
