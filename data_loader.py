@@ -18,7 +18,8 @@ def get_heavy_transform(transform_size=True, width=288, height=288):
     return A.Compose([
         A.HorizontalFlip(p=0.5),
 
-        A.RandomSunFlare(p=0.1),
+        A.Rotate(limit=45, p=0.5,
+                 interpolation=cv2.INTER_LINEAR),
 
         A.OneOf([
             A.GaussianBlur(),
@@ -32,10 +33,8 @@ def get_heavy_transform(transform_size=True, width=288, height=288):
             A.GridDistortion()
         ], p=0.2),
 
+        A.RandomSunFlare(p=0.1),
         A.RandomFog(p=0.1),
-
-        A.Rotate(limit=90, p=0.5,
-                 interpolation=cv2.INTER_LINEAR),
 
         A.OneOf([
             A.CLAHE(),
@@ -49,19 +48,21 @@ def get_heavy_transform(transform_size=True, width=288, height=288):
         A.RandomBrightnessContrast(brightness_limit=0.2,
                                    contrast_limit=0.2,
                                    p=0.5),
-        A.ToGray(p=0.2),
+        A.ToGray(p=0.15),
 
         A.OneOf([
             A.GaussNoise(var_limit=(0, 25)),
             A.ISONoise()
         ], p=0.5),
         A.Downscale(scale_min=0.25, scale_max=0.99,
-                    p=0.5),
+                    p=0.2),
         A.JpegCompression(quality_lower=65, quality_upper=100,
-                          p=0.5)
+                          p=0.2)
     ]
         + ([A.RandomResizedCrop(height=height, width=width,
-                                scale=(0.5, 1.5)), ] if transform_size else [])
+                                scale=(0.5, 1.5),
+                                ratio=(0.5, 2.0),
+                                interpolation=cv2.INTER_LINEAR), ] if transform_size else [])
     )
 
 # ==========================dataset load==========================
@@ -394,7 +395,7 @@ class MultiScaleSalObjDataset(SalObjDataset):
             transforms.Compose([
                 AlbuSampleTransformer(A.RandomResizedCrop(width=size, height=size,
                                                           scale=(0.5, 1.5),
-                                                          ratio=(3./4, 4./3.),
+                                                          ratio=(0.5, 2.0),
                                                           interpolation=cv2.INTER_LINEAR)),
                 ToTensorLab(flag=0)
             ])

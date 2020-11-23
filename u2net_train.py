@@ -14,8 +14,39 @@ from data_loader import (AlbuSampleTransformer, MixupAugSalObjDataset,
                          MultiScaleSalObjDataset, RandomCrop, RescaleT,
                          SalObjDataset, ToTensorLab, get_heavy_transform)
 from model import U2NET, U2NETP, CustomNet
+import albumentations as A
+import cv2
 
 bce_loss = nn.BCELoss(size_average=True)
+
+
+def multi_scale_collater(batch):
+    sizes = list(range(256, 512+1, 1))
+    scale = (0.5, 1.5)
+    ratio = (0.5, 2.0)
+    size = np.random.choice(sizes)
+
+    _tr = transforms.Compose([
+        AlbuSampleTransformer(A.RandomResizedCrop(width=size, height=size,
+                                                scale=(0.5, 1.5),
+                                                ratio=(0.5, 2.0),
+                                                interpolation=cv2.INTER_LINEAR)),
+        ToTensorLab(flag=0)
+    ])
+
+    transformed_batch = []
+    for sample in batch:
+        assert "image" in sample
+        assert "label" in sample
+        assert "imidx" in sample
+
+        transformed_batch.append(_tr(sample))
+
+    data = {}
+    for key in batch[0].keys():
+        data[key] = torch.stack(list(map(lambda s: s[key], transformed_batch)))
+
+    return data
 
 
 def multi_bce_loss_fusion(d0, d1, d2, d3, d4, d5, d6, labels_v):
@@ -62,23 +93,25 @@ def main():
 
     model_name = 'u2net'  # 'u2netp'
     se_type = None   # "csse", "sse", "cse", None; None to use author's default implementation
-    checkpoint = "saved_models/u2net/u2net_123rf_person_removebg_heavy_aug_multiscale_bce_itr_14000_train_1.636904_tar_0.218940.pth"
+    checkpoint = "saved_models/u2net/u2net_mixed_person_n_portraits_heavy_aug_multiscale_bce_itr_14000_train_0.484005_tar_0.061729.pth"
 
     # data_dir = '../datasets/'
     # tra_image_dir = '123rf_person_removebg/image/'
     # tra_label_dir = '123rf_person_removebg/alpha/'
 
     train_dirs = [
-        "../datasets/123rf_person_removebg/",
-        "../datasets/supervisely_person/",
-        "../datasets/portraits/",
-        "../datasets/aisegment_portraits/",
+        "../data/open_images_person_6k/",
+        "../data/123rf_person_removebg/",
+        "../data/supervisely_person/",
+        "../data/portraits/",
+        "../data/aisegment_portraits/",
     ]
     train_dirs_file_limit = [
         None,
         None,
         None,
-        30000
+        None,
+        30000,
     ]
 
     image_ext = '.jpg'
@@ -87,9 +120,9 @@ def main():
 
     lr = 0.001
     epoch_num = 300
-    batch_size_train = 3
+    batch_size_train = 12
     batch_size_val = 1
-    workers = 16
+    workers = 24
     save_frq = 2000  # save the model every 2000 iterations
 
     # ---------------------------------------------------------
@@ -152,15 +185,17 @@ def main():
     )
     if mixup_augmentation:
         _dataset_cls = MixupAugSalObjDataset
-    elif multiscale_training:
-        _dataset_cls = MultiScaleSalObjDataset
+    # elif multiscale_training:
+    #     _dataset_cls = MultiScaleSalObjDataset
     else:
         _dataset_cls = SalObjDataset
 
     salobj_dataset = _dataset_cls(**dataset_kwargs)
     salobj_dataloader = DataLoader(salobj_dataset,
                                    batch_size=batch_size_train,
+                                   collate_fn=multi_scale_collater if multiscale_training else None,
                                    shuffle=True,
+                                   pin_memory=True,
                                    num_workers=workers)
 
     # ---------------------------------------------------------
@@ -248,16 +283,16 @@ def main():
             image_key = "image"
             label_key = "label"
 
-            # Randomly select one of available sizes if multiscale training
-            if multiscale_training:
-                size = np.random.choice(salobj_dataloader.dataset.sizes)
-                tqdm.write(f"current input size: {size}")
+            # # Randomly select one of available sizes if multiscale training
+            # if multiscale_training:
+            #     size = np.random.choice(salobj_dataloader.dataset.sizes)
+            #     tqdm.write(f"current input size: {size}")
 
-                image_key = f"image_{size}"
-                label_key = f"label_{size}"
+            #     image_key = f"image_{size}"
+            #     label_key = f"label_{size}"
 
             inputs, labels = data[image_key], data[label_key]
-            # print(f"{inputs.shape}")
+            tqdm.write(f"input tensor shape: {inputs.shape}")
 
             inputs = inputs.type(torch.FloatTensor)
             labels = labels.type(torch.FloatTensor)
