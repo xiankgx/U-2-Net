@@ -1,6 +1,7 @@
 # data loader
 from __future__ import division, print_function
 
+import os
 import glob
 import random
 
@@ -19,7 +20,8 @@ def get_heavy_transform(transform_size=True, width=288, height=288):
         A.HorizontalFlip(p=0.5),
 
         A.Rotate(limit=45, p=0.5,
-                 interpolation=cv2.INTER_LINEAR),
+                 interpolation=cv2.INTER_LINEAR,
+                 border_mode=cv2.BORDER_CONSTANT),
 
         A.OneOf([
             A.GaussianBlur(),
@@ -29,12 +31,13 @@ def get_heavy_transform(transform_size=True, width=288, height=288):
 
         A.OneOf([
             A.IAAPiecewiseAffine(),
-            A.ElasticTransform(),
-            A.GridDistortion()
+            A.ElasticTransform(border_mode=cv2.BORDER_CONSTANT),
+            A.GridDistortion(border_mode=cv2.BORDER_CONSTANT),
+            A.OpticalDistortion(border_mode=cv2.BORDER_CONSTANT)
         ], p=0.2),
 
-        A.RandomSunFlare(p=0.1),
-        A.RandomFog(p=0.1),
+        # A.RandomSunFlare(p=0.1),
+        # A.RandomFog(p=0.1),
 
         A.OneOf([
             A.CLAHE(),
@@ -305,7 +308,7 @@ class ToTensorLab(object):
         tmpImg = tmpImg.transpose((2, 0, 1))
         tmpLbl = label.transpose((2, 0, 1))
 
-        return {'imidx': torch.from_numpy(imidx), 'image': torch.from_numpy(tmpImg), 'label': torch.from_numpy(tmpLbl)}
+        return {'imidx': imidx, 'image': torch.from_numpy(tmpImg), 'label': torch.from_numpy(tmpLbl)}
 
 
 class SalObjDataset(Dataset):
@@ -327,7 +330,8 @@ class SalObjDataset(Dataset):
 
         image = io.imread(self.image_name_list[idx])
         imname = self.image_name_list[idx]
-        imidx = np.array([idx])
+        # imidx = np.array([idx])
+        imidx = os.path.dirname(imname).replace("/", "__").replace("..__data__", "") + "__" + os.path.splitext(os.path.basename(imname))[0]
 
         if image.ndim == 2:
             image = np.stack([image, ] * 3, axis=-1)
@@ -379,6 +383,30 @@ class AlbuSampleTransformer(object):
                 f"{imidx} -> {str(e)}, image shape: {image.shape}, label shape: {label.shape}")
 
         return {'imidx': imidx, 'image': image, 'label': label}
+
+
+class SaveDebugSamples(object):
+
+    def __init__(self, out_dir="./debug/", p_sample=0.03):
+        self.out_dir = out_dir
+        self.p_sample = p_sample
+
+    def __call__(self, sample):
+        imidx, image, label = sample['imidx'], sample['image'], sample['label']
+
+        if np.random.rand() < self.p_sample:
+            # print(f"image - shape: {image.shape}, dtype: {image.dtype}, min: {image.min()}, max: {image.max()}")
+            # print(f"label - shape: {label.shape}, dtype: {label.dtype}, min: {label.min()}, max: {label.max()}")
+
+            os.makedirs(self.out_dir, exist_ok=True)
+
+            image_path = os.path.join(self.out_dir, f"{imidx}_image.png")
+            Image.fromarray(image.astype(np.uint8)).save(image_path)
+
+            label_path = os.path.join(self.out_dir, f"{imidx}_label.png")
+            Image.fromarray(label[..., 0].astype(np.uint8)).save(label_path)
+
+        return sample
 
 
 class MultiScaleSalObjDataset(SalObjDataset):

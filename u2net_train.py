@@ -11,7 +11,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from data_loader import (AlbuSampleTransformer, MixupAugSalObjDataset,
-                         MultiScaleSalObjDataset, RandomCrop, RescaleT,
+                         MultiScaleSalObjDataset, RandomCrop, RescaleT, SaveDebugSamples,
                          SalObjDataset, ToTensorLab, get_heavy_transform)
 from model import U2NET, U2NETP, CustomNet
 import albumentations as A
@@ -21,15 +21,15 @@ bce_loss = nn.BCELoss(size_average=True)
 
 
 def multi_scale_collater(batch):
-    sizes = list(range(256, 512+1, 1))
+    sizes = list(range(256, 640+1, 32))
     scale = (0.5, 1.5)
     ratio = (0.5, 2.0)
     size = np.random.choice(sizes)
 
     _tr = transforms.Compose([
         AlbuSampleTransformer(A.RandomResizedCrop(width=size, height=size,
-                                                scale=(0.5, 1.5),
-                                                ratio=(0.5, 2.0),
+                                                scale=scale,
+                                                ratio=ratio,
                                                 interpolation=cv2.INTER_LINEAR)),
         ToTensorLab(flag=0)
     ])
@@ -44,7 +44,10 @@ def multi_scale_collater(batch):
 
     data = {}
     for key in batch[0].keys():
-        data[key] = torch.stack(list(map(lambda s: s[key], transformed_batch)))
+        if key == "imidx":
+            data[key] = list(map(lambda s: s[key], transformed_batch))
+        else:
+            data[key] = torch.stack(list(map(lambda s: s[key], transformed_batch)))
 
     return data
 
@@ -93,37 +96,64 @@ def main():
 
     model_name = 'u2net'  # 'u2netp'
     se_type = None   # "csse", "sse", "cse", None; None to use author's default implementation
-    checkpoint = "saved_models/u2net/u2net_mixed_person_n_portraits_heavy_aug_multiscale_bce_itr_14000_train_0.484005_tar_0.061729.pth"
+    checkpoint = "saved_models/u2net/u2net_mixed_person_n_portraits_heavy_aug_multiscale_bce_itr_18000_train_0.331498_tar_0.041404.pth"
 
     # data_dir = '../datasets/'
     # tra_image_dir = '123rf_person_removebg/image/'
     # tra_label_dir = '123rf_person_removebg/alpha/'
 
     train_dirs = [
-        "../data/open_images_person_6k/",
+        # "../data/open_images_person_6k/",
         "../data/123rf_person_removebg/",
         "../data/supervisely_person/",
         "../data/portraits/",
         "../data/aisegment_portraits/",
+
+        "../data/open_images_v6_person_remove_bg_chunk_0_paired/",
+        "../data/open_images_v6_person_remove_bg_chunk_1_paired/",
+        "../data/open_images_v6_person_remove_bg_chunk_2_paired/",
+        "../data/open_images_v6_person_remove_bg_chunk_3_paired/",
+        "../data/open_images_v6_person_remove_bg_chunk_4_paired/",
+        "../data/open_images_v6_person_remove_bg_chunk_5_paired/",
+        "../data/open_images_v6_person_remove_bg_chunk_6_paired/",
+        "../data/open_images_v6_person_remove_bg_chunk_7_paired/",
+        "../data/open_images_v6_person_remove_bg_chunk_8_paired/",
+        "../data/open_images_v6_person_remove_bg_chunk_9_paired/",
+        "../data/open_images_v6_person_remove_bg_chunk_10_paired/",
     ]
     train_dirs_file_limit = [
-        None,
+        # None,
         None,
         None,
         None,
         30000,
+
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
     ]
 
     image_ext = '.jpg'
     label_ext = '.png'
     dataset_name = "mixed_person_n_portraits"
 
-    lr = 0.001
+    lr = 0.0003
     epoch_num = 300
-    batch_size_train = 12
+    batch_size_train = 8
     batch_size_val = 1
     workers = 24
     save_frq = 2000  # save the model every 2000 iterations
+
+    save_debug_samples = True
+    debug_samples_dir = "./debug/"
 
     # ---------------------------------------------------------
 
@@ -140,6 +170,8 @@ def main():
     dataset_name = dataset_name.replace(" ", "_")
 
     # Get training data
+    assert len(train_dirs) == len(train_dirs_file_limit), "Different train dirs and train dirs file limit length!"
+
     tra_img_name_list = []
     tra_lbl_name_list = []
     for d, flimit in zip(train_dirs, train_dirs_file_limit):
@@ -150,7 +182,7 @@ def main():
         print(f"directory: {d}, files: {len(img_files)}")
 
         for img_path in img_files:
-            lbl_path = img_path.replace("image", "alpha") \
+            lbl_path = img_path.replace("/image/", "/alpha/") \
                 .replace(image_ext, label_ext)
 
             if os.path.exists(img_path) and os.path.exists(lbl_path):
@@ -180,6 +212,7 @@ def main():
         lbl_name_list=tra_lbl_name_list,
         transform=transforms.Compose(
             [transform, ]
+            + ([SaveDebugSamples(out_dir=debug_samples_dir), ] if save_debug_samples else [])
             + ([ToTensorLab(flag=0), ] if not multiscale_training else [])
         )
     )
