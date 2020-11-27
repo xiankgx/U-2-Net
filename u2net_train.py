@@ -1,36 +1,41 @@
 import glob
 import os
 
+import albumentations as A
+import cv2
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
 import torchvision.transforms as transforms
+from sklearn.utils import shuffle
 from torch.autograd import Variable
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from data_loader import (AlbuSampleTransformer, MixupAugSalObjDataset,
-                         MultiScaleSalObjDataset, RandomCrop, RescaleT, SaveDebugSamples,
-                         SalObjDataset, ToTensorLab, get_heavy_transform)
+                         MultiScaleSalObjDataset, RandomCrop, RescaleT,
+                         SalObjDataset, SaveDebugSamples, ToTensorLab,
+                         get_heavy_transform)
 from model import U2NET, U2NETP, CustomNet
-import albumentations as A
-import cv2
 
-bce_loss = nn.BCELoss(size_average=True)
+bce_loss = nn.BCELoss(
+    # size_average=True
+    reduction="mean"
+)
 
 
 def multi_scale_collater(batch):
-    sizes = list(range(256, 640+1, 32))
+    sizes = list(range(256, 512+1, 32))
     scale = (0.5, 1.5)
     ratio = (0.5, 2.0)
     size = np.random.choice(sizes)
 
     _tr = transforms.Compose([
         AlbuSampleTransformer(A.RandomResizedCrop(width=size, height=size,
-                                                scale=scale,
-                                                ratio=ratio,
-                                                interpolation=cv2.INTER_LINEAR)),
+                                                  scale=scale,
+                                                  ratio=ratio,
+                                                  interpolation=cv2.INTER_LINEAR)),
         ToTensorLab(flag=0)
     ])
 
@@ -47,7 +52,8 @@ def multi_scale_collater(batch):
         if key == "imidx":
             data[key] = list(map(lambda s: s[key], transformed_batch))
         else:
-            data[key] = torch.stack(list(map(lambda s: s[key], transformed_batch)))
+            data[key] = torch.stack(list(map(lambda s: s[key],
+                                             transformed_batch)))
 
     return data
 
@@ -87,20 +93,15 @@ def main():
     # ---------------------------------------------------------
 
     heavy_augmentation = True  # False to use author's default implementation
-    # mutually exclusive with multiscale_training
     mixup_augmentation = False
-    # mutually exclusive with mixup_augmentation
+    fullsize_training = False
     multiscale_training = True
     multi_gpu = True
     mixed_precision_training = True
 
     model_name = 'u2net'  # 'u2netp'
     se_type = None   # "csse", "sse", "cse", None; None to use author's default implementation
-    checkpoint = "saved_models/u2net/u2net_mixed_person_n_portraits_heavy_aug_multiscale_bce_itr_18000_train_0.331498_tar_0.041404.pth"
-
-    # data_dir = '../datasets/'
-    # tra_image_dir = '123rf_person_removebg/image/'
-    # tra_label_dir = '123rf_person_removebg/alpha/'
+    checkpoint = "saved_models/u2net/u2net_mixed_person_n_portraits_heavy_aug_multiscale_bce_itr_4000_train_0.582476_tar_0.071842.pth"
 
     train_dirs = [
         # "../data/open_images_person_6k/",
@@ -109,17 +110,22 @@ def main():
         "../data/portraits/",
         "../data/aisegment_portraits/",
 
-        "../data/open_images_v6_person_remove_bg_chunk_0_paired/",
-        "../data/open_images_v6_person_remove_bg_chunk_1_paired/",
-        "../data/open_images_v6_person_remove_bg_chunk_2_paired/",
-        "../data/open_images_v6_person_remove_bg_chunk_3_paired/",
-        "../data/open_images_v6_person_remove_bg_chunk_4_paired/",
-        "../data/open_images_v6_person_remove_bg_chunk_5_paired/",
-        "../data/open_images_v6_person_remove_bg_chunk_6_paired/",
-        "../data/open_images_v6_person_remove_bg_chunk_7_paired/",
-        "../data/open_images_v6_person_remove_bg_chunk_8_paired/",
-        "../data/open_images_v6_person_remove_bg_chunk_9_paired/",
-        "../data/open_images_v6_person_remove_bg_chunk_10_paired/",
+        "../data/DUTS-TR/",
+        "../data/DUTS-TE/",
+
+        "../data/suimages_person_bgswapped_augment_factor_5/",
+
+        # "../data/open_images_v6_person_remove_bg_chunk_0_paired/",
+        # "../data/open_images_v6_person_remove_bg_chunk_1_paired/",
+        # "../data/open_images_v6_person_remove_bg_chunk_2_paired/",
+        # "../data/open_images_v6_person_remove_bg_chunk_3_paired/",
+        # "../data/open_images_v6_person_remove_bg_chunk_4_paired/",
+        # "../data/open_images_v6_person_remove_bg_chunk_5_paired/",
+        # "../data/open_images_v6_person_remove_bg_chunk_6_paired/",
+        # "../data/open_images_v6_person_remove_bg_chunk_7_paired/",
+        # "../data/open_images_v6_person_remove_bg_chunk_8_paired/",
+        # "../data/open_images_v6_person_remove_bg_chunk_9_paired/",
+        # "../data/open_images_v6_person_remove_bg_chunk_10_paired/",
     ]
     train_dirs_file_limit = [
         # None,
@@ -130,29 +136,34 @@ def main():
 
         None,
         None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
+
+        60000,
+
+        # None,
+        # None,
+        # None,
+        # None,
+        # None,
+        # None,
+        # None,
+        # None,
+        # None,
+        # None,
+        # None,
     ]
 
     image_ext = '.jpg'
     label_ext = '.png'
     dataset_name = "mixed_person_n_portraits"
 
-    lr = 0.0003
+    lr = 0.001
     epoch_num = 300
-    batch_size_train = 8
+    batch_size_train = 12
     batch_size_val = 1
     workers = 24
     save_frq = 2000  # save the model every 2000 iterations
 
-    save_debug_samples = True
+    save_debug_samples = False
     debug_samples_dir = "./debug/"
 
     # ---------------------------------------------------------
@@ -160,17 +171,20 @@ def main():
     model_dir = './saved_models/' + model_name + '/'
     os.makedirs(model_dir, exist_ok=True)
 
+    if fullsize_training:
+        batch_size_train = 1
+        multiscale_training = False
+
     # ---------------------------------------------------------
     # 1. Construct data input pipeline
     # ---------------------------------------------------------
 
     # Get dataset name
-    # if not dataset_name:
-    #     dataset_name = tra_image_dir.split(sep=os.path.sep)[0]
     dataset_name = dataset_name.replace(" ", "_")
 
     # Get training data
-    assert len(train_dirs) == len(train_dirs_file_limit), "Different train dirs and train dirs file limit length!"
+    assert len(train_dirs) == len(train_dirs_file_limit), \
+        "Different train dirs and train dirs file limit length!"
 
     tra_img_name_list = []
     tra_lbl_name_list = []
@@ -188,6 +202,12 @@ def main():
             if os.path.exists(img_path) and os.path.exists(lbl_path):
                 tra_img_name_list.append(img_path)
                 tra_lbl_name_list.append(lbl_path)
+            else:
+                print(
+                    f"Warning, dropping sample {img_path} because label file {lbl_path} not found!")
+
+    tra_img_name_list, tra_lbl_name_list = shuffle(tra_img_name_list,
+                                                   tra_lbl_name_list)
 
     train_num = len(tra_img_name_list)
     # val_num = 0  # unused
@@ -198,7 +218,10 @@ def main():
     if heavy_augmentation:
         transform = AlbuSampleTransformer(
             get_heavy_transform(
-                transform_size=False if multiscale_training else True)
+                fullsize_training=fullsize_training,
+                transform_size=False if (
+                    fullsize_training or multiscale_training) else True
+            )
         )
     else:
         transform = transforms.Compose([
@@ -212,14 +235,13 @@ def main():
         lbl_name_list=tra_lbl_name_list,
         transform=transforms.Compose(
             [transform, ]
-            + ([SaveDebugSamples(out_dir=debug_samples_dir), ] if save_debug_samples else [])
+            + ([SaveDebugSamples(out_dir=debug_samples_dir), ]
+               if save_debug_samples else [])
             + ([ToTensorLab(flag=0), ] if not multiscale_training else [])
         )
     )
     if mixup_augmentation:
         _dataset_cls = MixupAugSalObjDataset
-    # elif multiscale_training:
-    #     _dataset_cls = MultiScaleSalObjDataset
     else:
         _dataset_cls = SalObjDataset
 
@@ -286,8 +308,8 @@ def main():
 
     if GOT_AMP:
         amp.register_float_function(torch, 'sigmoid')
-        model, optimizer = amp.initialize(net, optimizer,
-                                          opt_level="O1")
+        net, optimizer = amp.initialize(net, optimizer,
+                                        opt_level="O1")
 
     if torch.cuda.device_count() > 1 and multi_gpu:
         print(f"Multi-GPU training using {torch.cuda.device_count()} GPUs.")
@@ -315,15 +337,6 @@ def main():
 
             image_key = "image"
             label_key = "label"
-
-            # # Randomly select one of available sizes if multiscale training
-            # if multiscale_training:
-            #     size = np.random.choice(salobj_dataloader.dataset.sizes)
-            #     tqdm.write(f"current input size: {size}")
-
-            #     image_key = f"image_{size}"
-            #     label_key = f"label_{size}"
-
             inputs, labels = data[image_key], data[label_key]
             tqdm.write(f"input tensor shape: {inputs.shape}")
 
@@ -396,6 +409,7 @@ def main():
                            + ("_" + dataset_name)
                            + ("_mixup_aug" if mixup_augmentation else "")
                            + ("_heavy_aug" if heavy_augmentation else "")
+                           + ("_fullsize" if fullsize_training else "")
                            + ("_multiscale" if multiscale_training else "")
                            + "_bce_itr_%d_train_%3f_tar_%3f.pth" % (
                     ite_num,

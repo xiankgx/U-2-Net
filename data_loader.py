@@ -1,8 +1,8 @@
 # data loader
 from __future__ import division, print_function
 
-import os
 import glob
+import os
 import random
 
 import albumentations as A
@@ -15,7 +15,30 @@ from torch.utils.data import Dataset
 from torchvision import transforms
 
 
-def get_heavy_transform(transform_size=True, width=288, height=288):
+def limit_image_size_if_needed(image, max_size=1024, **kwargs):
+    h = kwargs.get("rows")
+    w = kwargs.get("cols")
+
+    if max(h, w) > max_size:
+        tr = A.LongestMaxSize(max_size=max_size)
+        image = tr(image=image)["image"]
+    return image
+
+
+def limit_mask_size_if_needed(mask, max_size=1024, **kwargs):
+    h = kwargs.get("rows")
+    w = kwargs.get("cols")
+
+    if max(h, w) > max_size:
+        tr = A.LongestMaxSize(max_size=max_size)
+        mask = tr(image=mask)["image"]
+    return mask
+
+
+def get_heavy_transform(fullsize_training=False, fullsize_training_max_size=1024, transform_size=True, width=288, height=288):
+    if fullsize_training:
+        transform_size = False
+
     return A.Compose([
         A.HorizontalFlip(p=0.5),
 
@@ -62,6 +85,9 @@ def get_heavy_transform(transform_size=True, width=288, height=288):
         A.JpegCompression(quality_lower=65, quality_upper=100,
                           p=0.2)
     ]
+        # + ([A.LongestMaxSize(max_size=fullsize_training_max_size),] if fullsize_training else [])
+        + ([A.Lambda(image=limit_image_size_if_needed,
+                     mask=limit_mask_size_if_needed), ] if fullsize_training else [])
         + ([A.RandomResizedCrop(height=height, width=width,
                                 scale=(0.5, 1.5),
                                 ratio=(0.5, 2.0),
@@ -387,7 +413,7 @@ class AlbuSampleTransformer(object):
 
 class SaveDebugSamples(object):
 
-    def __init__(self, out_dir="./debug/", p_sample=0.03):
+    def __init__(self, out_dir="./debug/", p_sample=0.5):
         self.out_dir = out_dir
         self.p_sample = p_sample
 
