@@ -41,16 +41,17 @@ def get_heavy_transform(fullsize_training=False, fullsize_training_max_size=1024
 
     return A.Compose([
         A.HorizontalFlip(p=0.5),
+        # A.VerticalFlip(p=0.5),
 
-        A.Rotate(limit=30, p=0.5,
-                 interpolation=cv2.INTER_LINEAR,
-                 border_mode=cv2.BORDER_CONSTANT),
+        # A.Rotate(limit=30, p=0.5,
+        #          interpolation=cv2.INTER_LINEAR,
+        #          border_mode=cv2.BORDER_CONSTANT),
 
-        # A.OneOf([
-        #     A.GaussianBlur(),
-        #     A.MedianBlur(),
-        #     A.MotionBlur(),
-        # ], p=0.2),
+        A.OneOf([
+            A.GaussianBlur(),
+            A.MedianBlur(),
+            A.MotionBlur(),
+        ], p=0.2),
 
         # A.OneOf([
         #     A.IAAPiecewiseAffine(),
@@ -76,21 +77,29 @@ def get_heavy_transform(fullsize_training=False, fullsize_training_max_size=1024
                                    p=0.5),
         A.ToGray(p=0.15),
 
-        # A.OneOf([
-        #     A.GaussNoise(var_limit=(0, 25)),
-        #     A.ISONoise()
-        # ], p=0.5),
+        A.OneOf([
+            A.GaussNoise(var_limit=(0, 25)),
+            A.ISONoise()
+        ], p=0.5),
         # A.Downscale(scale_min=0.25, scale_max=0.99,
         #             p=0.2),
         # A.JpegCompression(quality_lower=65, quality_upper=100,
         #                   p=0.2)
     ]
+
         + ([A.Lambda(image=limit_image_size_if_needed, mask=limit_mask_size_if_needed), ]
            if fullsize_training else [])
-        + ([A.RandomResizedCrop(height=height, width=width,
-                                scale=(0.5, 1.0),
-                                ratio=(3./4., 4./3.),
-                                interpolation=cv2.INTER_LINEAR), ]
+
+        + ([
+            # A.RandomResizedCrop(height=height, width=width,
+            #                     scale=(0.5, 1.0),
+            #                     ratio=(3./4., 4./3.),
+            #                     interpolation=cv2.INTER_LINEAR),
+
+            # A.SmallestMaxSize(320),
+            A.Resize(height=320, width=320,
+                     interpolation=cv2.INTER_LINEAR),
+            A.RandomCrop(height=height, width=width), ]
            if transform_size else [])
     )
 
@@ -333,7 +342,7 @@ class ToTensorLab(object):
         tmpImg = tmpImg.transpose((2, 0, 1))
         tmpLbl = label.transpose((2, 0, 1))
 
-        return {'imidx': imidx, 'image': torch.from_numpy(tmpImg), 'label': torch.from_numpy(tmpLbl)}
+        return {'imidx': imidx, 'image': torch.from_numpy(tmpImg.copy()), 'label': torch.from_numpy(tmpLbl.copy())}
 
 
 class SalObjDataset(Dataset):

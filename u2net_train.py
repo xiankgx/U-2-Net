@@ -11,12 +11,12 @@ import torchvision.transforms as transforms
 from sklearn.utils import shuffle
 from torch.autograd import Variable
 from torch.utils.data import DataLoader
+from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
 from data_loader import (AlbuSampleTransformer, MixupAugSalObjDataset,
-                         MultiScaleSalObjDataset, RandomCrop, RescaleT,
-                         SalObjDataset, SaveDebugSamples, ToTensorLab,
-                         get_heavy_transform)
+                         RandomCrop, RescaleT, SalObjDataset, SaveDebugSamples,
+                         ToTensorLab, get_heavy_transform)
 from model import (U2NET, U2NETP, CustomNet, u2net_heavy, u2net_portable,
                    u2net_standard)
 
@@ -24,6 +24,15 @@ bce_loss = nn.BCELoss(
     # size_average=True
     reduction="mean"
 )
+
+
+IMAGENET_MEAN = [0.485, 0.456, 0.406]
+IMAGENET_STD = [0.229, 0.224, 0.225]
+
+
+def inv_normalize(t: torch.Tensor) -> torch.Tensor:
+    """Inverse normalize every image in an image tensor."""
+    return t * torch.tensor(IMAGENET_STD).reshape(1, 3, 1, 1).to(t.device) + torch.tensor(IMAGENET_MEAN).reshape(1, 3, 1, 1).to(t.device)
 
 
 def multi_scale_collater(batch):
@@ -96,13 +105,14 @@ def main():
     heavy_augmentation = True  # False to use author's default implementation
     mixup_augmentation = False
     fullsize_training = False
-    multiscale_training = True
+    multiscale_training = False
     multi_gpu = True
     mixed_precision_training = False
 
-    model_name = "u2net_heavy"  # "u2net", "u2netp", "u2net_heavy"
+    model_name = "u2net"  # "u2net", "u2netp", "u2net_heavy"
     se_type = None   # "csse", "sse", "cse", None; None to use author's default implementation
-    checkpoint = "saved_models/u2net_heavy/u2net_heavy_mixed_person_n_portraits_heavy_aug_multiscale_bce_itr_144000_train_0.623019_tar_0.077392.pth"
+    checkpoint = "saved_models/u2net/u2net_mixed_person_n_portraits_bce_itr_8000_train_0.453581_tar_0.053383.pth"
+    # checkpoint = None
 
     train_dirs = [
         # "../data/open_images_person_6k/",
@@ -136,8 +146,8 @@ def main():
         # None,
         None,
         None,
-        None,
-        30000,
+        10000,
+        10000,
 
         None,
         None,
@@ -145,7 +155,7 @@ def main():
         None,
         None,
 
-        30000,
+        10000,
 
         # None,
         # None,
@@ -164,11 +174,11 @@ def main():
     label_ext = '.png'
     dataset_name = "mixed_person_n_portraits"
 
-    lr = 0.0001
+    lr = 0.0003
     epoch_num = 200
-    batch_size_train = 4
+    batch_size_train = 24
     # batch_size_val = 1
-    workers = 16
+    workers = 24
     save_frq = 2000  # save the model every 2000 iterations
 
     save_debug_samples = False
@@ -178,6 +188,8 @@ def main():
 
     model_dir = './saved_models/' + model_name + '/'
     os.makedirs(model_dir, exist_ok=True)
+
+    writer = SummaryWriter()
 
     if fullsize_training:
         batch_size_train = 1
@@ -208,6 +220,9 @@ def main():
                 .replace(image_ext, label_ext)
 
             if os.path.exists(img_path) and os.path.exists(lbl_path):
+                assert os.path.splitext(os.path.basename(img_path))[0] == os.path.splitext(
+                    os.path.basename(lbl_path))[0], "Wrong filename."
+
                 tra_img_name_list.append(img_path)
                 tra_lbl_name_list.append(lbl_path)
             else:
@@ -400,8 +415,19 @@ def main():
             optimizer.step()
             # scheduler.step()
 
+            writer.add_scalar("loss", loss.item(), ite_num)
+            writer.add_scalar("loss2", loss2.item(), ite_num)
+
             running_loss += loss.item()
             running_tar_loss += loss2.item()
+
+            if ite_num % 200 == 0:
+                writer.add_images("inputs", inv_normalize(inputs_v),
+                                  ite_num)
+                writer.add_images("labels", labels_v,
+                                  ite_num)
+                writer.add_images("preds", d0,
+                                  ite_num)
 
             # Delete temporary outputs and loss
             del d0, d1, d2, d3, d4, d5, d6, loss2, loss
@@ -439,6 +465,7 @@ def main():
 
                 net.train()  # resume train
 
+    writer.close()
     print("Training completed successfully.")
 
 
