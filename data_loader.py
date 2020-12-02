@@ -42,56 +42,56 @@ def get_heavy_transform(fullsize_training=False, fullsize_training_max_size=1024
     return A.Compose([
         A.HorizontalFlip(p=0.5),
 
-        A.Rotate(limit=45, p=0.5,
+        A.Rotate(limit=30, p=0.5,
                  interpolation=cv2.INTER_LINEAR,
                  border_mode=cv2.BORDER_CONSTANT),
 
-        A.OneOf([
-            A.GaussianBlur(),
-            A.MedianBlur(),
-            A.MotionBlur(),
-        ], p=0.2),
+        # A.OneOf([
+        #     A.GaussianBlur(),
+        #     A.MedianBlur(),
+        #     A.MotionBlur(),
+        # ], p=0.2),
 
-        A.OneOf([
-            A.IAAPiecewiseAffine(),
-            A.ElasticTransform(border_mode=cv2.BORDER_CONSTANT),
-            A.GridDistortion(border_mode=cv2.BORDER_CONSTANT),
-            A.OpticalDistortion(border_mode=cv2.BORDER_CONSTANT)
-        ], p=0.2),
+        # A.OneOf([
+        #     A.IAAPiecewiseAffine(),
+        #     A.ElasticTransform(border_mode=cv2.BORDER_CONSTANT),
+        #     A.GridDistortion(border_mode=cv2.BORDER_CONSTANT),
+        #     A.OpticalDistortion(border_mode=cv2.BORDER_CONSTANT)
+        # ], p=0.2),
 
         # A.RandomSunFlare(p=0.1),
         # A.RandomFog(p=0.1),
 
-        A.OneOf([
-            A.CLAHE(),
-            A.RandomGamma(),
-            A.HueSaturationValue(),
-            A.ToSepia(),
-            A.RGBShift(),
-            A.ChannelShuffle(),
-        ], p=0.2),
+        # A.OneOf([
+        #     A.CLAHE(),
+        #     A.RandomGamma(),
+        #     A.HueSaturationValue(),
+        #     A.ToSepia(),
+        #     A.RGBShift(),
+        #     A.ChannelShuffle(),
+        # ], p=0.2),
 
         A.RandomBrightnessContrast(brightness_limit=0.2,
                                    contrast_limit=0.2,
                                    p=0.5),
         A.ToGray(p=0.15),
 
-        A.OneOf([
-            A.GaussNoise(var_limit=(0, 25)),
-            A.ISONoise()
-        ], p=0.5),
-        A.Downscale(scale_min=0.25, scale_max=0.99,
-                    p=0.2),
-        A.JpegCompression(quality_lower=65, quality_upper=100,
-                          p=0.2)
+        # A.OneOf([
+        #     A.GaussNoise(var_limit=(0, 25)),
+        #     A.ISONoise()
+        # ], p=0.5),
+        # A.Downscale(scale_min=0.25, scale_max=0.99,
+        #             p=0.2),
+        # A.JpegCompression(quality_lower=65, quality_upper=100,
+        #                   p=0.2)
     ]
-        # + ([A.LongestMaxSize(max_size=fullsize_training_max_size),] if fullsize_training else [])
-        + ([A.Lambda(image=limit_image_size_if_needed,
-                     mask=limit_mask_size_if_needed), ] if fullsize_training else [])
+        + ([A.Lambda(image=limit_image_size_if_needed, mask=limit_mask_size_if_needed), ]
+           if fullsize_training else [])
         + ([A.RandomResizedCrop(height=height, width=width,
-                                scale=(0.5, 1.5),
-                                ratio=(0.5, 2.0),
-                                interpolation=cv2.INTER_LINEAR), ] if transform_size else [])
+                                scale=(0.5, 1.0),
+                                ratio=(3./4., 4./3.),
+                                interpolation=cv2.INTER_LINEAR), ]
+           if transform_size else [])
     )
 
 # ==========================dataset load==========================
@@ -205,7 +205,7 @@ class ToTensor(object):
         tmpLbl = np.zeros(label.shape)
 
         image = image/np.max(image)
-        if(np.max(label) < 1e-6):
+        if (np.max(label) < 1e-6):
             label = label
         else:
             label = label/np.max(label)
@@ -259,33 +259,33 @@ class ToTensorLab(object):
             tmpImgtl = color.rgb2lab(tmpImgt)
 
             # nomalize image to range [0,1]
-            tmpImg[:, :, 0] = (tmpImgt[:, :, 0]-np.min(tmpImgt[:, :, 0])) / \
-                (np.max(tmpImgt[:, :, 0])-np.min(tmpImgt[:, :, 0]))
-            tmpImg[:, :, 1] = (tmpImgt[:, :, 1]-np.min(tmpImgt[:, :, 1])) / \
-                (np.max(tmpImgt[:, :, 1])-np.min(tmpImgt[:, :, 1]))
-            tmpImg[:, :, 2] = (tmpImgt[:, :, 2]-np.min(tmpImgt[:, :, 2])) / \
-                (np.max(tmpImgt[:, :, 2])-np.min(tmpImgt[:, :, 2]))
-            tmpImg[:, :, 3] = (tmpImgtl[:, :, 0]-np.min(tmpImgtl[:, :, 0])) / \
-                (np.max(tmpImgtl[:, :, 0])-np.min(tmpImgtl[:, :, 0]))
-            tmpImg[:, :, 4] = (tmpImgtl[:, :, 1]-np.min(tmpImgtl[:, :, 1])) / \
-                (np.max(tmpImgtl[:, :, 1])-np.min(tmpImgtl[:, :, 1]))
-            tmpImg[:, :, 5] = (tmpImgtl[:, :, 2]-np.min(tmpImgtl[:, :, 2])) / \
-                (np.max(tmpImgtl[:, :, 2])-np.min(tmpImgtl[:, :, 2]))
+            tmpImg[:, :, 0] = (tmpImgt[:, :, 0] - np.min(tmpImgt[:, :, 0])) / \
+                (np.max(tmpImgt[:, :, 0]) - np.min(tmpImgt[:, :, 0]))
+            tmpImg[:, :, 1] = (tmpImgt[:, :, 1] - np.min(tmpImgt[:, :, 1])) / \
+                (np.max(tmpImgt[:, :, 1]) - np.min(tmpImgt[:, :, 1]))
+            tmpImg[:, :, 2] = (tmpImgt[:, :, 2] - np.min(tmpImgt[:, :, 2])) / \
+                (np.max(tmpImgt[:, :, 2]) - np.min(tmpImgt[:, :, 2]))
+            tmpImg[:, :, 3] = (tmpImgtl[:, :, 0] - np.min(tmpImgtl[:, :, 0])) / \
+                (np.max(tmpImgtl[:, :, 0]) - np.min(tmpImgtl[:, :, 0]))
+            tmpImg[:, :, 4] = (tmpImgtl[:, :, 1] - np.min(tmpImgtl[:, :, 1])) / \
+                (np.max(tmpImgtl[:, :, 1]) - np.min(tmpImgtl[:, :, 1]))
+            tmpImg[:, :, 5] = (tmpImgtl[:, :, 2] - np.min(tmpImgtl[:, :, 2])) / \
+                (np.max(tmpImgtl[:, :, 2]) - np.min(tmpImgtl[:, :, 2]))
 
             # tmpImg = tmpImg/(np.max(tmpImg)-np.min(tmpImg))
 
-            tmpImg[:, :, 0] = (
-                tmpImg[:, :, 0]-np.mean(tmpImg[:, :, 0]))/np.std(tmpImg[:, :, 0])
-            tmpImg[:, :, 1] = (
-                tmpImg[:, :, 1]-np.mean(tmpImg[:, :, 1]))/np.std(tmpImg[:, :, 1])
-            tmpImg[:, :, 2] = (
-                tmpImg[:, :, 2]-np.mean(tmpImg[:, :, 2]))/np.std(tmpImg[:, :, 2])
-            tmpImg[:, :, 3] = (
-                tmpImg[:, :, 3]-np.mean(tmpImg[:, :, 3]))/np.std(tmpImg[:, :, 3])
-            tmpImg[:, :, 4] = (
-                tmpImg[:, :, 4]-np.mean(tmpImg[:, :, 4]))/np.std(tmpImg[:, :, 4])
-            tmpImg[:, :, 5] = (
-                tmpImg[:, :, 5]-np.mean(tmpImg[:, :, 5]))/np.std(tmpImg[:, :, 5])
+            tmpImg[:, :, 0] = (tmpImg[:, :, 0] - np.mean(tmpImg[:, :, 0])) / \
+                np.std(tmpImg[:, :, 0])
+            tmpImg[:, :, 1] = (tmpImg[:, :, 1] - np.mean(tmpImg[:, :, 1])) / \
+                np.std(tmpImg[:, :, 1])
+            tmpImg[:, :, 2] = (tmpImg[:, :, 2] - np.mean(tmpImg[:, :, 2])) / \
+                np.std(tmpImg[:, :, 2])
+            tmpImg[:, :, 3] = (tmpImg[:, :, 3] - np.mean(tmpImg[:, :, 3])) / \
+                np.std(tmpImg[:, :, 3])
+            tmpImg[:, :, 4] = (tmpImg[:, :, 4] - np.mean(tmpImg[:, :, 4])) / \
+                np.std(tmpImg[:, :, 4])
+            tmpImg[:, :, 5] = (tmpImg[:, :, 5] - np.mean(tmpImg[:, :, 5])) / \
+                np.std(tmpImg[:, :, 5])
 
         elif self.flag == 1:  # with Lab color
             tmpImg = np.zeros((image.shape[0], image.shape[1], 3))
@@ -301,19 +301,18 @@ class ToTensorLab(object):
 
             # tmpImg = tmpImg/(np.max(tmpImg)-np.min(tmpImg))
 
-            tmpImg[:, :, 0] = (tmpImg[:, :, 0]-np.min(tmpImg[:, :, 0])) / \
+            tmpImg[:, :, 0] = (tmpImg[:, :, 0] - np.min(tmpImg[:, :, 0])) / \
                 (np.max(tmpImg[:, :, 0])-np.min(tmpImg[:, :, 0]))
-            tmpImg[:, :, 1] = (tmpImg[:, :, 1]-np.min(tmpImg[:, :, 1])) / \
+            tmpImg[:, :, 1] = (tmpImg[:, :, 1] - np.min(tmpImg[:, :, 1])) / \
                 (np.max(tmpImg[:, :, 1])-np.min(tmpImg[:, :, 1]))
-            tmpImg[:, :, 2] = (tmpImg[:, :, 2]-np.min(tmpImg[:, :, 2])) / \
+            tmpImg[:, :, 2] = (tmpImg[:, :, 2] - np.min(tmpImg[:, :, 2])) / \
                 (np.max(tmpImg[:, :, 2])-np.min(tmpImg[:, :, 2]))
-
-            tmpImg[:, :, 0] = (
-                tmpImg[:, :, 0]-np.mean(tmpImg[:, :, 0]))/np.std(tmpImg[:, :, 0])
-            tmpImg[:, :, 1] = (
-                tmpImg[:, :, 1]-np.mean(tmpImg[:, :, 1]))/np.std(tmpImg[:, :, 1])
-            tmpImg[:, :, 2] = (
-                tmpImg[:, :, 2]-np.mean(tmpImg[:, :, 2]))/np.std(tmpImg[:, :, 2])
+            tmpImg[:, :, 0] = (tmpImg[:, :, 0] - np.mean(tmpImg[:, :, 0])) / \
+                np.std(tmpImg[:, :, 0])
+            tmpImg[:, :, 1] = (tmpImg[:, :, 1] - np.mean(tmpImg[:, :, 1])) / \
+                np.std(tmpImg[:, :, 1])
+            tmpImg[:, :, 2] = (tmpImg[:, :, 2] - np.mean(tmpImg[:, :, 2])) / \
+                np.std(tmpImg[:, :, 2])
 
         else:  # with rgb color
             tmpImg = np.zeros((image.shape[0], image.shape[1], 3))
@@ -339,9 +338,6 @@ class ToTensorLab(object):
 
 class SalObjDataset(Dataset):
     def __init__(self, img_name_list, lbl_name_list, transform=None):
-        # self.root_dir = root_dir
-        # self.image_name_list = glob.glob(image_dir+'*.png')
-        # self.label_name_list = glob.glob(label_dir+'*.png')
         self.image_name_list = img_name_list
         self.label_name_list = lbl_name_list
         self.transform = transform
@@ -350,19 +346,17 @@ class SalObjDataset(Dataset):
         return len(self.image_name_list)
 
     def __getitem__(self, idx):
-
-        # image = Image.open(self.image_name_list[idx])#io.imread(self.image_name_list[idx])
-        # label = Image.open(self.label_name_list[idx])#io.imread(self.label_name_list[idx])
-
         image = io.imread(self.image_name_list[idx])
         imname = self.image_name_list[idx]
         # imidx = np.array([idx])
-        imidx = os.path.dirname(imname).replace("/", "__").replace("..__data__", "") + "__" + os.path.splitext(os.path.basename(imname))[0]
+        imidx = os.path.dirname(imname).replace("/", "__") \
+            .replace("..__data__", "") \
+            + "__" + os.path.splitext(os.path.basename(imname))[0]
 
         if image.ndim == 2:
             image = np.stack([image, ] * 3, axis=-1)
 
-        if(0 == len(self.label_name_list)):
+        if (0 == len(self.label_name_list)):
             label_3 = np.zeros(image.shape)
         else:
             label_3 = io.imread(self.label_name_list[idx])
@@ -372,14 +366,14 @@ class SalObjDataset(Dataset):
             image = transform.resize(image, label_3.shape[:2])
 
         label = np.zeros(label_3.shape[0:2])
-        if(3 == len(label_3.shape)):
+        if (3 == len(label_3.shape)):
             label = label_3[:, :, 0]
-        elif(2 == len(label_3.shape)):
+        elif (2 == len(label_3.shape)):
             label = label_3
 
-        if(3 == len(image.shape) and 2 == len(label.shape)):
+        if (3 == len(image.shape) and 2 == len(label.shape)):
             label = label[:, :, np.newaxis]
-        elif(2 == len(image.shape) and 2 == len(label.shape)):
+        elif (2 == len(image.shape) and 2 == len(label.shape)):
             image = image[:, :, np.newaxis]
             label = label[:, :, np.newaxis]
 
@@ -435,40 +429,6 @@ class SaveDebugSamples(object):
         return sample
 
 
-class MultiScaleSalObjDataset(SalObjDataset):
-    """Salient object detection dataset for multi-scale training."""
-
-    def __init__(self,
-                 *pargs,
-                 sizes=[256, 320, 384, 448, 512],
-                 **kwargs):
-        super(MultiScaleSalObjDataset, self).__init__(*pargs, **kwargs)
-
-        self.sizes = sizes
-        self.transform_size_list = [
-            transforms.Compose([
-                AlbuSampleTransformer(A.RandomResizedCrop(width=size, height=size,
-                                                          scale=(0.5, 1.5),
-                                                          ratio=(0.5, 2.0),
-                                                          interpolation=cv2.INTER_LINEAR)),
-                ToTensorLab(flag=0)
-            ])
-            for size in sizes
-        ]
-
-    def __getitem__(self, idx):
-        sample = super(MultiScaleSalObjDataset, self).__getitem__(idx)
-
-        ms_sample = {}
-        ms_sample["imidx"] = sample["imidx"]
-        for i, size in enumerate(self.sizes):
-            _sample = self.transform_size_list[i](sample)
-            ms_sample[f"image_{size}"] = _sample["image"]
-            ms_sample[f"label_{size}"] = _sample["label"]
-
-        return ms_sample
-
-
 class MixupAugSalObjDataset(SalObjDataset):
     """Saliency object detection dataset with mixup data augmentation."""
 
@@ -489,5 +449,34 @@ class MixupAugSalObjDataset(SalObjDataset):
             'imidx_2': sample_2['imidx'],
             'image': lam * sample_1['image'] + (1.0 - lam) * sample_2['image'],
             'label': lam * sample_1['label'] + (1.0 - lam) * sample_2['label']
+        }
+        return sample
+
+
+class ZipDataset(Dataset):
+
+    def __init__(self, ds1, ds2):
+        self.ds1 = ds1
+        self.ds2 = ds2
+
+    def __len__(self):
+        return max(len(self.ds1), len(self.ds2))
+
+    def __getitem__(self, idx):
+        idx_ds1 = idx % len(self.ds1)
+        idx_ds2 = idx % len(self.ds2)
+
+        sample_ds1 = self.ds1.__getitem__(idx_ds1)
+        sample_ds2 = self.ds2.__getitem__(idx_ds2)
+
+        sample = {
+            "imidx_1": sample_ds1["imidx"],
+            "imidx_2": sample_ds2["imidx"],
+
+            "image_1": sample_ds1["image"],
+            "image_2": sample_ds2["image"],
+
+            "label_1": sample_ds1["label"],
+            "label_2": sample_ds2["label"]
         }
         return sample

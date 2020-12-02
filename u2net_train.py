@@ -17,7 +17,8 @@ from data_loader import (AlbuSampleTransformer, MixupAugSalObjDataset,
                          MultiScaleSalObjDataset, RandomCrop, RescaleT,
                          SalObjDataset, SaveDebugSamples, ToTensorLab,
                          get_heavy_transform)
-from model import U2NET, U2NETP, CustomNet
+from model import (U2NET, U2NETP, CustomNet, u2net_heavy, u2net_portable,
+                   u2net_standard)
 
 bce_loss = nn.BCELoss(
     # size_average=True
@@ -27,8 +28,8 @@ bce_loss = nn.BCELoss(
 
 def multi_scale_collater(batch):
     sizes = list(range(256, 512+1, 32))
-    scale = (0.5, 1.5)
-    ratio = (0.5, 2.0)
+    scale = (0.5, 1.0)
+    ratio = (3./4., 4./3.)
     size = np.random.choice(sizes)
 
     _tr = transforms.Compose([
@@ -97,11 +98,11 @@ def main():
     fullsize_training = False
     multiscale_training = True
     multi_gpu = True
-    mixed_precision_training = True
+    mixed_precision_training = False
 
-    model_name = 'u2net'  # 'u2netp'
+    model_name = "u2net_heavy"  # "u2net", "u2netp", "u2net_heavy"
     se_type = None   # "csse", "sse", "cse", None; None to use author's default implementation
-    checkpoint = "saved_models/u2net/u2net_mixed_person_n_portraits_heavy_aug_multiscale_bce_itr_4000_train_0.582476_tar_0.071842.pth"
+    checkpoint = "saved_models/u2net_heavy/u2net_heavy_mixed_person_n_portraits_heavy_aug_multiscale_bce_itr_144000_train_0.623019_tar_0.077392.pth"
 
     train_dirs = [
         # "../data/open_images_person_6k/",
@@ -112,6 +113,10 @@ def main():
 
         "../data/DUTS-TR/",
         "../data/DUTS-TE/",
+
+        # ~1000 images
+        "../data/123rf_curated_annset1/",
+        "../data/123rf_curated_annset2/",
 
         "../data/suimages_person_bgswapped_augment_factor_5/",
 
@@ -137,7 +142,10 @@ def main():
         None,
         None,
 
-        60000,
+        None,
+        None,
+
+        30000,
 
         # None,
         # None,
@@ -156,11 +164,11 @@ def main():
     label_ext = '.png'
     dataset_name = "mixed_person_n_portraits"
 
-    lr = 0.001
-    epoch_num = 300
-    batch_size_train = 12
-    batch_size_val = 1
-    workers = 24
+    lr = 0.0001
+    epoch_num = 200
+    batch_size_train = 4
+    # batch_size_val = 1
+    workers = 16
     save_frq = 2000  # save the model every 2000 iterations
 
     save_debug_samples = False
@@ -258,11 +266,13 @@ def main():
     # ---------------------------------------------------------
 
     # Instantiate model
-    if model_name == 'u2net':
+    if model_name == "u2net":
         net = U2NET(3, 1, se_type=se_type)
-    elif model_name == 'u2netp':
+    elif model_name == "u2netp":
         net = U2NETP(3, 1, se_type=se_type)
-    elif model_name == 'custom':
+    elif model_name == "u2net_heavy":
+        net = u2net_heavy()
+    elif model_name == "custom":
         net = CustomNet()
     else:
         raise ValueError(f"Unknown model_name: {model_name}")
@@ -291,6 +301,10 @@ def main():
                            betas=(0.9, 0.999),
                            eps=1e-08,
                            weight_decay=0)
+    # optimizer = optim.SGD(net.parameters(), lr=lr)
+    # scheduler = optim.lr_scheduler.CyclicLR(optimizer, base_lr=lr/4, max_lr=lr,
+    #                                         mode="triangular2",
+    #                                         step_size_up=2 * len(salobj_dataloader))
 
     # ---------------------------------------------------------
     # 4. Initialize AMP and data parallel stuffs
@@ -328,10 +342,10 @@ def main():
     running_loss = 0.0
     running_tar_loss = 0.0
 
-    for epoch in tqdm(range(0, epoch_num), desc="Epoch"):
+    for epoch in tqdm(range(0, epoch_num), desc="All epochs"):
         net.train()
 
-        for i, data in enumerate(tqdm(salobj_dataloader, desc="Batch")):
+        for i, data in enumerate(tqdm(salobj_dataloader, desc=f"Epoch #{epoch}")):
             ite_num = ite_num + 1
             ite_num4val = ite_num4val + 1
 
@@ -384,6 +398,7 @@ def main():
             else:
                 loss.backward()
             optimizer.step()
+            # scheduler.step()
 
             running_loss += loss.item()
             running_tar_loss += loss2.item()
@@ -420,8 +435,9 @@ def main():
                 # Reset stats
                 running_loss = 0.0
                 running_tar_loss = 0.0
-                net.train()  # resume train
                 ite_num4val = 0
+
+                net.train()  # resume train
 
     print("Training completed successfully.")
 
